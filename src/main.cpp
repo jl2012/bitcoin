@@ -4194,6 +4194,7 @@ bool static AlreadyHave(const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     switch (inv.type)
     {
     case MSG_TX:
+    case MSG_WITNESS_TX:
         {
             assert(recentRejects);
             if (chainActive.Tip()->GetBlockHash() != hashRecentRejectsChainTip)
@@ -4212,6 +4213,7 @@ bool static AlreadyHave(const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
                    pcoinsTip->HaveCoins(inv.hash);
         }
     case MSG_BLOCK:
+    case MSG_WITNESS_BLOCK:
         return mapBlockIndex.count(inv.hash);
     }
     // Don't know what it is, just say we already got one
@@ -5697,11 +5699,11 @@ bool SendMessages(CNode* pto)
             vInvWait.reserve(pto->vInventoryToSend.size());
             BOOST_FOREACH(const CInv& inv, pto->vInventoryToSend)
             {
-                if (inv.type == MSG_TX && pto->filterInventoryKnown.contains(inv.hash))
+                if ((inv.type == MSG_TX || inv.type == MSG_WITNESS_TX) && pto->filterInventoryKnown.contains(inv.hash))
                     continue;
 
                 // trickle out tx inv to protect privacy
-                if (inv.type == MSG_TX && !fSendTrickle)
+                if ((inv.type == MSG_TX || inv.type == MSG_WITNESS_TX) && !fSendTrickle)
                 {
                     // 1/4 of tx invs blast to all immediately
                     static uint256 hashSalt;

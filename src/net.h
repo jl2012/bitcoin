@@ -513,7 +513,7 @@ public:
     {
         {
             LOCK(cs_inventory);
-            if (inv.type == MSG_TX && filterInventoryKnown.contains(inv.hash))
+            if ((inv.type == MSG_TX || inv.type == MSG_WITNESS_TX) && filterInventoryKnown.contains(inv.hash))
                 return;
             vInventoryToSend.push_back(inv);
         }
