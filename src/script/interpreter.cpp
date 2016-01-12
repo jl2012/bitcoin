@@ -1220,18 +1220,41 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         stack = witness.stack;
     } else if (witversion == 1) {
         // Version 1 segregated witness program: SHA256(CScript) inside the program, CScript + inputs in witness
-        if (program.size() != 32) {
-            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
-        }
         if (witness.stack.size() == 0) {
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
         }
-        scriptPubKey = CScript(witness.stack.back().begin(), witness.stack.back().end());
-        stack = std::vector<std::vector<unsigned char> >(witness.stack.begin(), witness.stack.end() - 1);
-        uint256 hashScriptPubKey;
-        CSHA256().Write(&scriptPubKey[0], scriptPubKey.size()).Finalize(hashScriptPubKey.begin());
-        if (memcmp(hashScriptPubKey.begin(), &program[0], 32)) {
-            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+        if (program.size() == 32) {
+            scriptPubKey = CScript(witness.stack.back().begin(), witness.stack.back().end());
+            stack = std::vector<std::vector<unsigned char> >(witness.stack.begin(), witness.stack.end() - 1);
+            uint256 hashScriptPubKey;
+            CSHA256().Write(&scriptPubKey[0], scriptPubKey.size()).Finalize(hashScriptPubKey.begin());
+            if (memcmp(hashScriptPubKey.begin(), &program[0], 32)) {
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+            }
+            if (!EvalScript(stack, scriptPubKey, flags, checker, 1, serror)) {
+                return false;
+            }
+            // Scripts inside witness implicitly require cleanstack behaviour
+            if (stack.size() != 1)
+                return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+            if (!CastToBool(stack.back()))
+                return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+            return true;
+        }
+        else if (program.size() == 20) {
+            if (witness.stack.size() != 2) {
+                return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+            }
+            pubKey = ;
+            sig = ;
+            uint256 hashPubKey;
+            CHASH160().Write(&pubKey[0], pubKey.size()).Finalize(hashScriptPubKey.begin());
+            if (memcmp(hashPubKey.begin(), &program[0], 20)) {
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+            }   
+        }
+        else {
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
         }
     } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) {
         return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
@@ -1239,16 +1262,6 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         // Higher version witness scripts return true for future softfork compatibility
         return set_success(serror);
     }
-
-    if (!EvalScript(stack, scriptPubKey, flags, checker, 1, serror)) {
-        return false;
-    }
-    // Scripts inside witness implicitly require cleanstack behaviour
-    if (stack.size() != 1)
-        return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
-    if (!CastToBool(stack.back()))
-        return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
-    return true;
 }
 
 bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
