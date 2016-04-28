@@ -12,6 +12,7 @@
 #include "pubkey.h"
 #include "script/script.h"
 #include "uint256.h"
+#include "consensus/merkle.h"
 
 using namespace std;
 
@@ -1324,6 +1325,52 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             }
             scriptPubKey << OP_DUP << OP_HASH160 << program << OP_EQUALVERIFY << OP_CHECKSIG;
             stack = witness.stack;
+        } else {
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
+        }
+    } else if (witversion == 1) {
+        if (program.size() == 32) {
+            if (witness.stack.size() < 3)
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+
+            //Script: the last witness stack item
+            scriptPubKey = CScript(witness.stack.back().begin(), witness.stack.back().end());
+            uint256 hashScriptPubKey;
+            CHash256().Write(&scriptPubKey[0], scriptPubKey.size()).Finalize(hashScriptPubKey.begin());
+
+            //Path: the second last witness stack item; size = 32N, 0 <= N < 33
+            std::vector<unsigned char> pathdata = witness.stack.at(witness.stack.size() - 2);
+            if (pathdata.size() & 0x1F)
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+            unsigned int depth = pathdata.size() >> 5;
+            if (depth > 32)
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+            std::vector<uint256> path;
+            path.resize(depth);
+            for (unsigned int i = 0; i < depth; i++)
+                memcpy(path[i].begin(), &pathdata[32 * i], 32);
+
+            //Position: the third last witness stack item; unsigned int with smallest possible value and no leading zero
+            std::vector<unsigned char> positiondata = witness.stack.at(witness.stack.size() - 3);
+            if (positiondata.size() > 4)
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+            uint32_t position = 0;
+            if (positiondata.size() > 0) {
+                if (positiondata.back() == 0x00)
+                    return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+                for (size_t i = 0; i != positiondata.size(); ++i)
+                    position |= static_cast<uint32_t>(positiondata[i]) << 8 * i;
+            }
+            if (depth < 32) {
+                if (position >= (1U << depth))
+                    return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+            }
+
+            uint256 root = ComputeMerkleRootFromBranch(hashScriptPubKey, path, position);
+            if (memcmp(root.begin(), &program[0], 32))
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+
+            stack = std::vector<std::vector<unsigned char> >(witness.stack.begin(), witness.stack.end() - 3);
         } else {
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
         }
