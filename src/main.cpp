@@ -1401,6 +1401,10 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             scriptVerifyFlags = GetArg("-promiscuousmempoolflags", scriptVerifyFlags);
         }
 
+        // MAST is not safe before activated by BIP9
+        if (VersionBitsTipState(chainparams.GetConsensus(), Consensus::DEPLOYMENT_MAST) != THRESHOLD_ACTIVE)
+            scriptVerifyFlags &= ~SCRIPT_VERIFY_MAST;
+
         // Check against previous transactions
         // This is done last to help prevent CPU exhaustion denial-of-service attacks.
         if (!CheckInputs(tx, state, view, true, scriptVerifyFlags, true)) {
@@ -2357,6 +2361,10 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // Start enforcing WITNESS rules using versionbits logic.
     if (IsWitnessEnabled(pindex->pprev, chainparams.GetConsensus())) {
         flags |= SCRIPT_VERIFY_WITNESS;
+
+        // Start enforcing MAST rules using versionbits logic. (MAST depends on WITNESS)
+        if (VersionBitsState(pindex->pprev, chainparams.GetConsensus(), Consensus::DEPLOYMENT_MAST, versionbitscache) == THRESHOLD_ACTIVE)
+            flags |= SCRIPT_VERIFY_MAST;
     }
 
     int64_t nTime2 = GetTimeMicros(); nTimeForks += nTime2 - nTime1;

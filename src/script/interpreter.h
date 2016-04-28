@@ -94,6 +94,12 @@ enum
     // Making v2-v16 witness program non-standard
     //
     SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM = (1U << 12),
+
+    // Support MAST and new opcodes
+    // Note: MAST should not be used without WITNESS
+    //
+    // See BIP114 for details
+    SCRIPT_VERIFY_MAST = (1U << 13),
 };
 
 bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);

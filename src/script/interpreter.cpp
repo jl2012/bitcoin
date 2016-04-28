@@ -1328,7 +1328,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         } else {
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
         }
-    } else if (witversion == 1) {
+    } else if (witversion == 1 && flags & SCRIPT_VERIFY_MAST) {
         if (program.size() == 32) {
             if (witness.stack.size() < 3)
                 return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
