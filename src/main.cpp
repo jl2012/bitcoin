@@ -295,6 +295,8 @@ struct CNodeState {
     bool fProvidesHeaderAndIDs;
     //! Whether this peer can give us witnesses
     bool fHaveWitness;
+    //! Whether this peer wants witnesses in cmpctblocks/blocktxns
+    bool fWantCmpctWitness;
 
     CNodeState() {
         fCurrentlyConnected = false;
@@ -314,6 +316,7 @@ struct CNodeState {
         fPreferHeaderAndIDs = false;
         fProvidesHeaderAndIDs = false;
         fHaveWitness = false;
+        fWantCmpctWitness = false;
     }
 };
 
@@ -473,8 +476,8 @@ void UpdateBlockAvailability(NodeId nodeid, const uint256 &hash) {
 }
 
 void MaybeSetPeerAsAnnouncingHeaderAndIDs(const CNodeState* nodestate, CNode* pfrom) {
-    if (nLocalServices & NODE_WITNESS) {
-        // Don't ever request compact blocks when segwit is enabled.
+    if (nLocalServices & ~pfrom->nServices & NODE_WITNESS) {
+        // Never ask from peers who can't provide witnesses.
         return;
     }
     if (nodestate->fProvidesHeaderAndIDs) {
@@ -482,7 +485,7 @@ void MaybeSetPeerAsAnnouncingHeaderAndIDs(const CNodeState* nodestate, CNode* pf
             if (nodeid == pfrom->GetId())
                 return;
         bool fAnnounceUsingCMPCTBLOCK = false;
-        uint64_t nCMPCTBLOCKVersion = 1;
+        uint64_t nCMPCTBLOCKVersion = (nLocalServices & NODE_WITNESS) ? 2 : 1;
         if (lNodesAnnouncingHeaderAndIDs.size() >= 3) {
             // As per BIP152, we only get 3 of our peers to announce
             // blocks using compact encodings.
@@ -4876,11 +4879,12 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                         // they wont have a useful mempool to match against a compact block,
                         // and we dont feel like constructing the object for them, so
                         // instead we respond with the full, non-compact block.
+                        bool fPeerWantsWitness = State(pfrom->GetId())->fWantCmpctWitness;
                         if (mi->second->nHeight >= chainActive.Height() - 10) {
-                            CBlockHeaderAndShortTxIDs cmpctblock(block);
-                            pfrom->PushMessageWithFlag(SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::CMPCTBLOCK, cmpctblock);
+                            CBlockHeaderAndShortTxIDs cmpctblock(block, fPeerWantsWitness);
+                            pfrom->PushMessageWithFlag(fPeerWantsWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::CMPCTBLOCK, cmpctblock);
                         } else
-                            pfrom->PushMessageWithFlag(SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::BLOCK, block);
+                            pfrom->PushMessageWithFlag(fPeerWantsWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::BLOCK, block);
                     }
 
                     // Trigger the peer node to send a getblocks request for the next batch of inventory
@@ -5146,13 +5150,13 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
             pfrom->PushMessage(NetMsgType::SENDHEADERS);
         }
         if (pfrom->nVersion >= SHORT_IDS_BLOCKS_VERSION) {
-            // Tell our peer we are willing to provide version-1 cmpctblocks
+            // Tell our peer we are willing to provide version 1 or 2 cmpctblocks
             // However, we do not request new block announcements using
             // cmpctblock messages.
             // We send this to non-NODE NETWORK peers as well, because
             // they may wish to request compact blocks from us
             bool fAnnounceUsingCMPCTBLOCK = false;
-            uint64_t nCMPCTBLOCKVersion = 1;
+            uint64_t nCMPCTBLOCKVersion = (pfrom->nServices & nLocalServices & NODE_WITNESS) ? 2 : 1;
             pfrom->PushMessage(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion);
         }
     }
@@ -5232,12 +5236,13 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
     else if (strCommand == NetMsgType::SENDCMPCT)
     {
         bool fAnnounceUsingCMPCTBLOCK = false;
-        uint64_t nCMPCTBLOCKVersion = 1;
+        uint64_t nCMPCTBLOCKVersion = 0;
         vRecv >> fAnnounceUsingCMPCTBLOCK >> nCMPCTBLOCKVersion;
-        if (nCMPCTBLOCKVersion == 1) {
+        if (nCMPCTBLOCKVersion == 1 || nCMPCTBLOCKVersion == 2) {
             LOCK(cs_main);
             State(pfrom->GetId())->fProvidesHeaderAndIDs = true;
             State(pfrom->GetId())->fPreferHeaderAndIDs = fAnnounceUsingCMPCTBLOCK;
+            State(pfrom->GetId())->fWantCmpctWitness = (nCMPCTBLOCKVersion == 2);
         }
     }
 
@@ -5295,7 +5300,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                         nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER &&
                         (!IsWitnessEnabled(chainActive.Tip(), chainparams.GetConsensus()) || State(pfrom->GetId())->fHaveWitness)) {
                         inv.type |= nFetchFlags;
-                        if (nodestate->fProvidesHeaderAndIDs && !(nLocalServices & NODE_WITNESS))
+                        if (nodestate->fProvidesHeaderAndIDs)
                             vToFetch.push_back(CInv(MSG_CMPCT_BLOCK, inv.hash));
                         else
                             vToFetch.push_back(inv);
@@ -5424,7 +5429,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
             }
             resp.txn[i] = block.vtx[req.indexes[i]];
         }
-        pfrom->PushMessageWithFlag(SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::BLOCKTXN, resp);
+        pfrom->PushMessageWithFlag(State(pfrom->GetId())->fWantCmpctWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::BLOCKTXN, resp);
     }
 
 
@@ -5684,7 +5689,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                 // We requested this block for some reason, but our mempool will probably be useless
                 // so we just grab the block via normal getdata
                 std::vector<CInv> vInv(1);
-                vInv[0] = CInv(MSG_BLOCK, cmpctblock.header.GetHash());
+                vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom, pindex->pprev, chainparams.GetConsensus()), cmpctblock.header.GetHash());
                 pfrom->PushMessage(NetMsgType::GETDATA, vInv);
                 return true;
             }
@@ -5722,7 +5727,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                 } else if (status == READ_STATUS_FAILED) {
                     // Duplicate txindexes, the block is now in-flight, so just request it
                     std::vector<CInv> vInv(1);
-                    vInv[0] = CInv(MSG_BLOCK, cmpctblock.header.GetHash());
+                    vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom, pindex->pprev, chainparams.GetConsensus()), cmpctblock.header.GetHash());
                     pfrom->PushMessage(NetMsgType::GETDATA, vInv);
                     return true;
                 }
@@ -5749,7 +5754,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                 // We requested this block, but its far into the future, so our
                 // mempool will probably be useless - request the block normally
                 std::vector<CInv> vInv(1);
-                vInv[0] = CInv(MSG_BLOCK, cmpctblock.header.GetHash());
+                vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom, pindex->pprev, chainparams.GetConsensus()), cmpctblock.header.GetHash());
                 pfrom->PushMessage(NetMsgType::GETDATA, vInv);
                 return true;
             } else {
@@ -5791,7 +5796,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         } else if (status == READ_STATUS_FAILED) {
             // Might have collided, fall back to getdata now :(
             std::vector<CInv> invs;
-            invs.push_back(CInv(MSG_BLOCK, resp.blockhash));
+            invs.push_back(CInv(MSG_BLOCK | GetFetchFlags(pfrom, chainActive.Tip(), chainparams.GetConsensus()), resp.blockhash));
             pfrom->PushMessage(NetMsgType::GETDATA, invs);
         } else {
             CValidationState state;
@@ -5914,7 +5919,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                             pindexLast->GetBlockHash().ToString(), pindexLast->nHeight);
                 }
                 if (vGetData.size() > 0) {
-                    if (nodestate->fProvidesHeaderAndIDs && vGetData.size() == 1 && mapBlocksInFlight.size() == 1 && pindexLast->pprev->IsValid(BLOCK_VALID_CHAIN) && !(nLocalServices & NODE_WITNESS)) {
+                    if (nodestate->fProvidesHeaderAndIDs && vGetData.size() == 1 && mapBlocksInFlight.size() == 1 && pindexLast->pprev->IsValid(BLOCK_VALID_CHAIN)) {
                         // We seem to be rather well-synced, so it appears pfrom was the first to provide us
                         // with this block! Let's get them to announce using compact blocks in the future.
                         MaybeSetPeerAsAnnouncingHeaderAndIDs(nodestate, pfrom);
@@ -6537,8 +6542,8 @@ bool SendMessages(CNode* pto)
                     //TODO: Shouldn't need to reload block from disk, but requires refactor
                     CBlock block;
                     assert(ReadBlockFromDisk(block, pBestIndex, consensusParams));
-                    CBlockHeaderAndShortTxIDs cmpctblock(block);
-                    pto->PushMessageWithFlag(SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::CMPCTBLOCK, cmpctblock);
+                    CBlockHeaderAndShortTxIDs cmpctblock(block, state.fWantCmpctWitness);
+                    pto->PushMessageWithFlag(state.fWantCmpctWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::CMPCTBLOCK, cmpctblock);
                     state.pindexBestHeaderSent = pBestIndex;
                 } else if (state.fPreferHeaders) {
                     if (vHeaders.size() > 1) {
