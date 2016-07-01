@@ -1676,8 +1676,8 @@ void ThreadOpenConnections()
             if (nANow - addr.nLastTry < 600 && nTries < 30)
                 continue;
 
-            // only consider nodes missing relevant services after 40 failed attemps
-            if ((addr.nServices & nRelevantServices) != nRelevantServices && nTries < 40)
+            // do not connect to witness node
+            if (addr.nServices & NODE_WITNESS)
                 continue;
 
             // do not allow non-default ports, unless after 50 invalid addresses selected already
