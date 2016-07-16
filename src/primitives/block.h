@@ -21,7 +21,7 @@ class CBlockHeader
 {
 public:
     // header
-    int32_t nVersion;
+    uint32_t nDeploymentSoft;
     uint256 hashPrevBlock;
     uint256 hashMerkleRoot;
     uint32_t nTime;
@@ -37,7 +37,7 @@ public:
 
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action) {
-        READWRITE(this->nVersion);
+        READWRITE(nDeploymentSoft);
         READWRITE(hashPrevBlock);
         READWRITE(hashMerkleRoot);
         READWRITE(nTime);
@@ -47,7 +47,7 @@ public:
 
     void SetNull()
     {
-        nVersion = 0;
+        nDeploymentSoft = 0;
         hashPrevBlock.SetNull();
         hashMerkleRoot.SetNull();
         nTime = 0;
@@ -107,7 +107,7 @@ public:
     CBlockHeader GetBlockHeader() const
     {
         CBlockHeader block;
-        block.nVersion       = nVersion;
+        block.nDeploymentSoft = nDeploymentSoft;
         block.hashPrevBlock  = hashPrevBlock;
         block.hashMerkleRoot = hashMerkleRoot;
         block.nTime          = nTime;
