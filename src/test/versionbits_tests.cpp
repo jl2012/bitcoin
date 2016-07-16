@@ -27,7 +27,7 @@ public:
     int64_t EndTime(const Consensus::Params& params) const { return TestTime(20000); }
     int Period(const Consensus::Params& params) const { return 1000; }
     int Threshold(const Consensus::Params& params) const { return 900; }
-    bool Condition(const CBlockIndex* pindex, const Consensus::Params& params) const { return (pindex->nVersion & 0x100); }
+    bool Condition(const CBlockIndex* pindex, const Consensus::Params& params) const { return (pindex->nDeploymentSoft & 0x100); }
 
     ThresholdState GetStateFor(const CBlockIndex* pindexPrev) const { return AbstractThresholdConditionChecker::GetStateFor(pindexPrev, paramsDummy, cache); }
     int GetStateSinceHeightFor(const CBlockIndex* pindexPrev) const { return AbstractThresholdConditionChecker::GetStateSinceHeightFor(pindexPrev, paramsDummy, cache); }
@@ -66,13 +66,13 @@ public:
          Reset();
     }
 
-    VersionBitsTester& Mine(unsigned int height, int32_t nTime, int32_t nVersion) {
+    VersionBitsTester& Mine(unsigned int height, int32_t nTime, uint32_t nDeploymentSoft) {
         while (vpblock.size() < height) {
             CBlockIndex* pindex = new CBlockIndex();
             pindex->nHeight = vpblock.size();
             pindex->pprev = vpblock.size() > 0 ? vpblock.back() : NULL;
             pindex->nTime = nTime;
-            pindex->nVersion = nVersion;
+            pindex->nDeploymentSoft = nDeploymentSoft;
             pindex->BuildSkip();
             vpblock.push_back(pindex);
         }

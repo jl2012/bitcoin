@@ -1636,10 +1636,10 @@ void ThreadScriptCheck() {
 // Protected by cs_main
 VersionBitsCache versionbitscache;
 
-int32_t ComputeBlockVersion(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+uint32_t ComputeBlockVersion(const CBlockIndex* pindexPrev, const Consensus::Params& params)
 {
     LOCK(cs_main);
-    int32_t nVersion = VERSIONBITS_TOP_BITS;
+    uint32_t nVersion = VERSIONBITS_TOP_BITS;
 
     for (int i = 0; i < (int)Consensus::MAX_VERSION_BITS_DEPLOYMENTS; i++) {
         ThresholdState state = VersionBitsState(pindexPrev, params, (Consensus::DeploymentPos)i, versionbitscache);
@@ -1669,8 +1669,8 @@ public:
 
     bool Condition(const CBlockIndex* pindex, const Consensus::Params& params) const
     {
-        return ((pindex->nVersion & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS) &&
-               ((pindex->nVersion >> bit) & 1) != 0 &&
+        return ((pindex->nDeploymentSoft & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS) &&
+               ((pindex->nDeploymentSoft >> bit) & 1) != 0 &&
                ((ComputeBlockVersion(pindex->pprev, params) >> bit) & 1) == 0;
     }
 };
@@ -2065,8 +2065,8 @@ void static UpdateTip(CBlockIndex *pindexNew, const CChainParams& chainParams) {
         // Check the version of the last 100 blocks to see if we need to upgrade:
         for (int i = 0; i < 100 && pindex != NULL; i++)
         {
-            int32_t nExpectedVersion = ComputeBlockVersion(pindex->pprev, chainParams.GetConsensus());
-            if (pindex->nVersion > VERSIONBITS_LAST_OLD_BLOCK_VERSION && (pindex->nVersion & ~nExpectedVersion) != 0)
+            uint32_t nExpectedVersion = ComputeBlockVersion(pindex->pprev, chainParams.GetConsensus());
+            if (pindex->nDeploymentSoft > VERSIONBITS_LAST_OLD_BLOCK_VERSION && (pindex->nDeploymentSoft & ~nExpectedVersion) != 0)
                 ++nUpgraded;
             pindex = pindex->pprev;
         }
@@ -2082,8 +2082,8 @@ void static UpdateTip(CBlockIndex *pindexNew, const CChainParams& chainParams) {
             }
         }
     }
-    LogPrintf("%s: new best=%s height=%d version=0x%08x log2_work=%.8g tx=%lu date='%s' progress=%f cache=%.1fMiB(%utx)", __func__,
-      chainActive.Tip()->GetBlockHash().ToString(), chainActive.Height(), chainActive.Tip()->nVersion,
+    LogPrintf("%s: new best=%s height=%d deploySoft=0x%08x log2_work=%.8g tx=%lu date='%s' progress=%f cache=%.1fMiB(%utx)", __func__,
+      chainActive.Tip()->GetBlockHash().ToString(), chainActive.Height(), chainActive.Tip()->nDeploymentSoft,
       log(chainActive.Tip()->nChainWork.getdouble())/log(2.0), (unsigned long)chainActive.Tip()->nChainTx,
       DateTimeStrFormat("%Y-%m-%d %H:%M:%S", chainActive.Tip()->GetBlockTime()),
       Checkpoints::GuessVerificationProgress(chainParams.Checkpoints(), chainActive.Tip()), pcoinsTip->DynamicMemoryUsage() * (1.0 / (1<<20)), pcoinsTip->GetCacheSize());
@@ -2727,6 +2727,11 @@ bool CheckBlockHeader(const CBlockHeader& block, CValidationState& state, const 
     if (fCheckPOW && !CheckProofOfWork(block.GetHash(), block.nBits, consensusParams))
         return state.DoS(50, false, REJECT_INVALID, "high-hash", false, "proof of work failed");
 
+    // This field used to be used as a signed version number, which made the high bit invalid
+    if (block.nDeploymentSoft > 0x7fffffff) {
+        return state.DoS(0, false, REJECT_INVALID, "bad-version", false, "softfork deployment field has high bit set");
+    }
+
     return true;
 }
 
@@ -2884,11 +2889,11 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
 
     // Reject outdated version blocks when 95% (75% on testnet) of the network has upgraded:
     // check for version 2, 3 and 4 upgrades
-    if((block.nVersion < 2 && nHeight >= consensusParams.BIP34Height) ||
-       (block.nVersion < 3 && nHeight >= consensusParams.BIP66Height) ||
-       (block.nVersion < 4 && nHeight >= consensusParams.BIP65Height))
-            return state.Invalid(false, REJECT_OBSOLETE, strprintf("bad-version(0x%08x)", block.nVersion),
-                                 strprintf("rejected nVersion=0x%08x block", block.nVersion));
+    if((block.nDeploymentSoft < 2 && nHeight >= consensusParams.BIP34Height) ||
+       (block.nDeploymentSoft < 3 && nHeight >= consensusParams.BIP66Height) ||
+       (block.nDeploymentSoft < 4 && nHeight >= consensusParams.BIP65Height))
+            return state.Invalid(false, REJECT_OBSOLETE, strprintf("bad-version(0x%08x)", block.nDeploymentSoft),
+                                 strprintf("rejected nDeploymentSoft=0x%08x block", block.nDeploymentSoft));
 
     return true;
 }
