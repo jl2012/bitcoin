@@ -66,13 +66,14 @@ public:
          Reset();
     }
 
-    VersionBitsTester& Mine(unsigned int height, int32_t nTime, uint32_t nDeploymentSoft) {
+    VersionBitsTester& Mine(unsigned int height, int32_t nTTime, uint32_t nDeploymentSoft) {
         while (vpblock.size() < height) {
             CBlockIndex* pindex = new CBlockIndex();
             pindex->nHeight = vpblock.size();
             pindex->pprev = vpblock.size() > 0 ? vpblock.back() : NULL;
-            pindex->nTime = nTime;
+            pindex->nTTime = nTTime;
             pindex->nDeploymentSoft = nDeploymentSoft;
+            pindex->InitialiseFromPrev();
             pindex->BuildSkip();
             vpblock.push_back(pindex);
         }

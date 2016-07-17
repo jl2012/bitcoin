@@ -109,7 +109,7 @@ QDateTime ClientModel::getLastBlockDate() const
     if (chainActive.Tip())
         return QDateTime::fromTime_t(chainActive.Tip()->GetBlockTime());
 
-    return QDateTime::fromTime_t(Params().GenesisBlock().GetBlockTime()); // Genesis block's time of current network
+    return QDateTime::fromTime_t(Params().GenesisBlock().GetBlockTime(0)); // Genesis block's time of current network
 }
 
 long ClientModel::getMempoolSize() const

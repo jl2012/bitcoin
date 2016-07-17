@@ -207,7 +207,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_1)
 
     block.nVersion = 1;
     block.hashPrevBlock = uint256S("0x00000000000080b66c911bd5ba14a74260057311eaeb1982802f7010f1a9f090");
-    block.nTime = 1293625051;
+    block.nTTime = 1293625051;
     block.nBits = 0x1b04864c;
     block.nNonce = 0x93bfb11a;
     block.vtx.resize(9);
@@ -394,7 +394,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_2)
 
     block.nVersion = 1;
     block.hashPrevBlock = uint256S("0x00000000689051c09ff2cd091cc4c22c10b965eb8db3ad5f032621cc36626175");
-    block.nTime = 1231999700;
+    block.nTTime = 1231999700;
     block.nBits = 0x1d00ffff;
     block.nNonce = 0x41a4f000;
     block.vtx.resize(4);
@@ -521,7 +521,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_2_with_update_none)
 
     block.nVersion = 1;
     block.hashPrevBlock = uint256S("0x00000000689051c09ff2cd091cc4c22c10b965eb8db3ad5f032621cc36626175");
-    block.nTime = 1231999700;
+    block.nTTime = 1231999700;
     block.nBits = 0x1d00ffff;
     block.nNonce = 0x41a4f000;
     block.vtx.resize(4);
@@ -645,7 +645,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_3_and_serialize)
 
     block.nVersion = 1;
     block.hashPrevBlock = uint256S("0x000000000000b0b8b4e8105d62300d63c8ec1a1df0af1c2cdbd943b156a8cd79");
-    block.nTime = 1293625703;
+    block.nTTime = 1293625703;
     block.nBits = 0x1b04864c;
     block.nNonce = 0x635da48f;
     block.vtx.resize(1);
@@ -702,7 +702,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_4)
 
     block.nVersion = 1;
     block.hashPrevBlock = uint256S("0x0000000000016780c81d42b7eff86974c36f5ae026e8662a4393a7f39c86bb82");
-    block.nTime = 1293629558;
+    block.nTTime = 1293629558;
     block.nBits = 0x1b04864c;
     block.nNonce = 0x29854b55;
     block.vtx.resize(7);
@@ -865,7 +865,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_4_test_p2pubkey_only)
 
     block.nVersion = 1;
     block.hashPrevBlock = uint256S("0x0000000000016780c81d42b7eff86974c36f5ae026e8662a4393a7f39c86bb82");
-    block.nTime = 1293629558;
+    block.nTTime = 1293629558;
     block.nBits = 0x1b04864c;
     block.nNonce = 0x29854b55;
     block.vtx.resize(7);
@@ -1005,7 +1005,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_4_test_update_none)
 
     block.nVersion = 1;
     block.hashPrevBlock = uint256S("0x0000000000016780c81d42b7eff86974c36f5ae026e8662a4393a7f39c86bb82");
-    block.nTime = 1293629558;
+    block.nTTime = 1293629558;
     block.nBits = 0x1b04864c;
     block.nNonce = 0x29854b55;
     block.vtx.resize(7);
