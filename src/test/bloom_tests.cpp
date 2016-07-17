@@ -205,7 +205,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_1)
     CMutableTransaction mtx;
     std::vector<unsigned char> vchScript;
 
-    block.nVersion = 1;
+    block.nDeploymentSoft = 1;
     block.hashPrevBlock = uint256S("0x00000000000080b66c911bd5ba14a74260057311eaeb1982802f7010f1a9f090");
     block.nTTime = 1293625051;
     block.nBits = 0x1b04864c;
@@ -392,7 +392,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_2)
     CMutableTransaction mtx;
     std::vector<unsigned char> vchScript;
 
-    block.nVersion = 1;
+    block.nDeploymentSoft = 1;
     block.hashPrevBlock = uint256S("0x00000000689051c09ff2cd091cc4c22c10b965eb8db3ad5f032621cc36626175");
     block.nTTime = 1231999700;
     block.nBits = 0x1d00ffff;
@@ -519,7 +519,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_2_with_update_none)
     CMutableTransaction mtx;
     std::vector<unsigned char> vchScript;
 
-    block.nVersion = 1;
+    block.nDeploymentSoft = 1;
     block.hashPrevBlock = uint256S("0x00000000689051c09ff2cd091cc4c22c10b965eb8db3ad5f032621cc36626175");
     block.nTTime = 1231999700;
     block.nBits = 0x1d00ffff;
@@ -643,7 +643,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_3_and_serialize)
     CMutableTransaction mtx;
     std::vector<unsigned char> vchScript;
 
-    block.nVersion = 1;
+    block.nDeploymentSoft = 1;
     block.hashPrevBlock = uint256S("0x000000000000b0b8b4e8105d62300d63c8ec1a1df0af1c2cdbd943b156a8cd79");
     block.nTTime = 1293625703;
     block.nBits = 0x1b04864c;
@@ -680,7 +680,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_3_and_serialize)
     for (unsigned int i = 0; i < vMatched.size(); i++)
         BOOST_CHECK(vMatched[i] == merkleBlock.vMatchedTxn[i].second);
 
-    CDataStream merkleStream(SER_NETWORK, PROTOCOL_VERSION);
+    CDataStream merkleStream(SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_BLOCK_LEGACY);
     merkleStream << merkleBlock;
 
     vector<unsigned char> vch = ParseHex("0100000079cda856b143d9db2c1caff01d1aecc8630d30625d10e8b4b8b0000000000000b50cc069d6a3e33e3ff84a5c41d9d3febe7c770fdcc96b2c3ff60abe184f196367291b4d4c86041b8fa45d630100000001b50cc069d6a3e33e3ff84a5c41d9d3febe7c770fdcc96b2c3ff60abe184f19630101");
@@ -700,7 +700,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_4)
     CMutableTransaction mtx;
     std::vector<unsigned char> vchScript;
 
-    block.nVersion = 1;
+    block.nDeploymentSoft = 1;
     block.hashPrevBlock = uint256S("0x0000000000016780c81d42b7eff86974c36f5ae026e8662a4393a7f39c86bb82");
     block.nTTime = 1293629558;
     block.nBits = 0x1b04864c;
@@ -863,7 +863,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_4_test_p2pubkey_only)
     CMutableTransaction mtx;
     std::vector<unsigned char> vchScript;
 
-    block.nVersion = 1;
+    block.nDeploymentSoft = 1;
     block.hashPrevBlock = uint256S("0x0000000000016780c81d42b7eff86974c36f5ae026e8662a4393a7f39c86bb82");
     block.nTTime = 1293629558;
     block.nBits = 0x1b04864c;
@@ -1003,7 +1003,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_4_test_update_none)
     CMutableTransaction mtx;
     std::vector<unsigned char> vchScript;
 
-    block.nVersion = 1;
+    block.nDeploymentSoft = 1;
     block.hashPrevBlock = uint256S("0x0000000000016780c81d42b7eff86974c36f5ae026e8662a4393a7f39c86bb82");
     block.nTTime = 1293629558;
     block.nBits = 0x1b04864c;

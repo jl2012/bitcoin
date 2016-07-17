@@ -10,6 +10,9 @@
 #include "serialize.h"
 #include "uint256.h"
 
+static const uint32_t HARDFORK_HEIGHT = 4194304;  // 2088 Q1
+static const int SERIALIZE_BLOCK_LEGACY = 0x04000000;
+
 int64_t GetBlockTime(uint32_t nBlockTTime, int64_t nPrevBlockTime);
 
 /** Nodes collect new transactions into a block, hash them into a hash tree,
@@ -23,12 +26,26 @@ class CBlockHeader
 {
 public:
     // header
+    uint32_t nHeight;
     uint32_t nDeploymentSoft;
+    uint32_t nDeploymentHard;
     uint256 hashPrevBlock;
-    uint256 hashMerkleRoot;
     uint32_t nTTime;
     uint32_t nBits;
     uint32_t nNonce;
+    uint32_t nNonceC2;
+    std::vector<uint8_t> vchNonceC3;
+
+    // info about transactions
+    uint256 hashMerkleRoot;
+    uint256 hashMerkleRootWitnesses;
+    uint64_t nTxsBytes;
+    uint64_t nTxsCost;
+    uint64_t nTxsSigops;
+    uint32_t nTxsCount;
+
+    // branches in commitment merkle tree
+    std::vector<uint256> vhashCMTBranches;
 
     CBlockHeader()
     {
@@ -39,22 +56,59 @@ public:
 
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action) {
-        READWRITE(nDeploymentSoft);
-        READWRITE(hashPrevBlock);
-        READWRITE(hashMerkleRoot);
-        READWRITE(nTTime);
-        READWRITE(nBits);
-        READWRITE(nNonce);
+        int nVersion = s.GetVersion();
+        if (nVersion & SERIALIZE_BLOCK_LEGACY) {
+            if (ser_action.ForRead()) {
+                SetNull();
+            }
+            READWRITE(nDeploymentSoft);
+            READWRITE(hashPrevBlock);
+            READWRITE(hashMerkleRoot);
+            READWRITE(nTTime);
+            READWRITE(nBits);
+            READWRITE(nNonce);
+        } else {
+            READWRITE(nHeight);
+            READWRITE(nDeploymentSoft);
+            READWRITE(nDeploymentHard);
+            READWRITE(hashPrevBlock);
+            READWRITE(nTTime);
+            READWRITE(nBits);
+            READWRITE(nNonce);
+            READWRITE(nNonceC2);
+            READWRITE(vchNonceC3);
+            if (vchNonceC3.size() < 4 && nHeight >= HARDFORK_HEIGHT) {
+                throw std::ios_base::failure("CBlockHeader::SerializationOp: short class 3 nonce");
+            }
+
+            READWRITE(hashMerkleRoot);
+            READWRITE(hashMerkleRootWitnesses);
+            READWRITE(nTxsBytes);
+            READWRITE(nTxsCost);
+            READWRITE(nTxsSigops);
+            READWRITE(nTxsCount);
+
+            READWRITE(vhashCMTBranches);
+        }
     }
 
     void SetNull()
     {
+        nHeight = 0;
         nDeploymentSoft = 0;
+        nDeploymentHard = 0;
         hashPrevBlock.SetNull();
         hashMerkleRoot.SetNull();
+        hashMerkleRootWitnesses.SetNull();
         nTTime = 0;
         nBits = 0;
         nNonce = 0;
+        nNonceC2 = 0;
+        nTxsBytes = 0;
+        nTxsCost = 0;
+        nTxsSigops = 0;
+        nTxsCount = 0;
+        vhashCMTBranches.clear();
     }
 
     bool IsNull() const
