@@ -1486,6 +1486,11 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         }
 
         unsigned int scriptVerifyFlags = STANDARD_SCRIPT_VERIFY_FLAGS;
+
+        // MAST is not safe before activated by BIP9
+        if (VersionBitsTipState(chainparams.GetConsensus(), Consensus::DEPLOYMENT_MAST) != THRESHOLD_ACTIVE)
+            scriptVerifyFlags &= ~SCRIPT_VERIFY_MAST;
+
         if (!Params().RequireStandard()) {
             scriptVerifyFlags = GetArg("-promiscuousmempoolflags", scriptVerifyFlags);
         }
@@ -2389,6 +2394,10 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     if (IsWitnessEnabled(pindex->pprev, chainparams.GetConsensus())) {
         flags |= SCRIPT_VERIFY_WITNESS;
         flags |= SCRIPT_VERIFY_NULLDUMMY;
+
+        // Start enforcing MAST rules using versionbits logic. (MAST depends on WITNESS)
+        if (VersionBitsState(pindex->pprev, chainparams.GetConsensus(), Consensus::DEPLOYMENT_MAST, versionbitscache) == THRESHOLD_ACTIVE)
+            flags |= SCRIPT_VERIFY_MAST;
     }
 
     int64_t nTime2 = GetTimeMicros(); nTimeForks += nTime2 - nTime1;
