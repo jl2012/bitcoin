@@ -154,22 +154,29 @@ const char* GetOpName(opcodetype opcode)
     }
 }
 
-unsigned int CScript::GetSigOpCount(bool fAccurate) const
+unsigned int CScript::GetSigOpCount(unsigned int nVersion) const
 {
     unsigned int n = 0;
     const_iterator pc = begin();
     opcodetype lastOpcode = OP_INVALIDOPCODE;
+    std::vector<unsigned char> vchPushValue;
     while (pc < end())
     {
         opcodetype opcode;
-        if (!GetOp(pc, opcode))
+        if (!GetOp(pc, opcode, vchPushValue))
             break;
         if (opcode == OP_CHECKSIG || opcode == OP_CHECKSIGVERIFY)
             n++;
         else if (opcode == OP_CHECKMULTISIG || opcode == OP_CHECKMULTISIGVERIFY)
         {
-            if (fAccurate && lastOpcode >= OP_1 && lastOpcode <= OP_16)
+            if (nVersion == 1 && lastOpcode >= OP_1 && lastOpcode <= OP_16)
                 n += DecodeOP_N(lastOpcode);
+            else if (nVersion == 2) {
+                if (vchPushValue.size() == 2)
+                    n += static_cast<uint32_t>(vchPushValue[1]);
+                else
+                    n += 31;
+            }
             else
                 n += MAX_PUBKEYS_PER_MULTISIG;
         }
@@ -181,7 +188,7 @@ unsigned int CScript::GetSigOpCount(bool fAccurate) const
 unsigned int CScript::GetSigOpCount(const CScript& scriptSig) const
 {
     if (!IsPayToScriptHash())
-        return GetSigOpCount(true);
+        return GetSigOpCount(1);
 
     // This is a pay-to-script-hash scriptPubKey;
     // get the last item that the scriptSig
@@ -199,7 +206,7 @@ unsigned int CScript::GetSigOpCount(const CScript& scriptSig) const
 
     /// ... and return its opcount:
     CScript subscript(data.begin(), data.end());
-    return subscript.GetSigOpCount(true);
+    return subscript.GetSigOpCount(1);
 }
 
 bool CScript::IsPayToScriptHash() const

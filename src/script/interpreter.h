@@ -27,6 +27,20 @@ enum
     SIGHASH_ANYONECANPAY = 0x80,
 };
 
+enum
+{
+    SIGHASHV2_VERSION = 0x80,
+    SIGHASHV2_ALL_INPUT = 0x60,
+    SIGHASHV2_THIS_INPUT = 0x40,
+    SIGHASHV2_THIS_AMOUNT = 0x20,
+    SIGHASHV2_ALL_SEQUENCE = 0x18,
+    SIGHASHV2_THIS_SEQUENCE = 0x10,
+    SIGHASHV2_ALL_OUTPUT = 0x06,
+    SIGHASHV2_THIS_OUTPUT = 0x04,
+    SIGHASHV2_LOCKTIME = 0x01,
+    SIGHASHV2_ALL = 0xff,
+};
+
 /** Script verification flags */
 enum
 {
@@ -100,6 +114,10 @@ enum
     //
     // See BIP114 for details
     SCRIPT_VERIFY_MAST = (1U << 13),
+
+    // Making unknown keyversion non-standard
+    //
+    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_KEYVERSION = (1U << 14),
 };
 
 bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);
