@@ -904,6 +904,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                 //
                 case OP_1ADD:
                 case OP_1SUB:
+                case OP_2MUL:
                 case OP_NEGATE:
                 case OP_ABS:
                 case OP_NOT:
@@ -917,6 +918,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     {
                     case OP_1ADD:       bn += bnOne; break;
                     case OP_1SUB:       bn -= bnOne; break;
+                    case OP_2MUL:       bn = bn + bn; break;
                     case OP_NEGATE:     bn = -bn; break;
                     case OP_ABS:        if (bn < bnZero) bn = -bn; break;
                     case OP_NOT:        bn = (bn == bnZero); break;
