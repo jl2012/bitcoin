@@ -97,9 +97,10 @@ def get_legacy_sigopcount_block(block, fAccurate=True):
 
 def get_legacy_sigopcount_tx(tx, fAccurate=True):
     count = 0
+    nVersion = 1 if fAccurate else 0
     for i in tx.vout:
-        count += i.scriptPubKey.GetSigOpCount(fAccurate)
+        count += i.scriptPubKey.GetSigOpCount(nVersion)
     for j in tx.vin:
         # scriptSig might be of type bytes, so convert to CScript for the moment
-        count += CScript(j.scriptSig).GetSigOpCount(fAccurate)
+        count += CScript(j.scriptSig).GetSigOpCount(nVersion)
     return count

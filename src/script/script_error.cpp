@@ -19,6 +19,8 @@ const char* ScriptErrorString(const ScriptError serror)
             return "Script failed an OP_EQUALVERIFY operation";
         case SCRIPT_ERR_CHECKMULTISIGVERIFY:
             return "Script failed an OP_CHECKMULTISIGVERIFY operation";
+        case SCRIPT_ERR_CHECKMULTISIGVERIFY_FLAGS:
+            return "Script failed an invalid flags for OP_CHECKMULTISIGVERIFY";
         case SCRIPT_ERR_CHECKSIGVERIFY:
             return "Script failed an OP_CHECKSIGVERIFY operation";
         case SCRIPT_ERR_NUMEQUALVERIFY:
@@ -73,6 +75,8 @@ const char* ScriptErrorString(const ScriptError serror)
             return "NOPx reserved for soft-fork upgrades";
         case SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM:
             return "Witness version reserved for soft-fork upgrades";
+        case SCRIPT_ERR_DISCOURAGE_UPGRADABLE_KEYVERSION:
+            return "Public key version reserved for soft-fork upgrades";
         case SCRIPT_ERR_PUBKEYTYPE:
             return "Public key is neither compressed or uncompressed";
         case SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH:

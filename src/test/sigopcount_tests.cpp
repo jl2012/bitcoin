@@ -31,15 +31,15 @@ BOOST_AUTO_TEST_CASE(GetSigOpCount)
 {
     // Test CScript::GetSigOpCount()
     CScript s1;
-    BOOST_CHECK_EQUAL(s1.GetSigOpCount(false), 0U);
-    BOOST_CHECK_EQUAL(s1.GetSigOpCount(true), 0U);
+    BOOST_CHECK_EQUAL(s1.GetSigOpCount(0), 0U);
+    BOOST_CHECK_EQUAL(s1.GetSigOpCount(1), 0U);
 
     uint160 dummy;
     s1 << OP_1 << ToByteVector(dummy) << ToByteVector(dummy) << OP_2 << OP_CHECKMULTISIG;
-    BOOST_CHECK_EQUAL(s1.GetSigOpCount(true), 2U);
+    BOOST_CHECK_EQUAL(s1.GetSigOpCount(1), 2U);
     s1 << OP_IF << OP_CHECKSIG << OP_ENDIF;
-    BOOST_CHECK_EQUAL(s1.GetSigOpCount(true), 3U);
-    BOOST_CHECK_EQUAL(s1.GetSigOpCount(false), 21U);
+    BOOST_CHECK_EQUAL(s1.GetSigOpCount(1), 3U);
+    BOOST_CHECK_EQUAL(s1.GetSigOpCount(0), 21U);
 
     CScript p2sh = GetScriptForDestination(CScriptID(s1));
     CScript scriptSig;
@@ -54,12 +54,12 @@ BOOST_AUTO_TEST_CASE(GetSigOpCount)
         keys.push_back(k.GetPubKey());
     }
     CScript s2 = GetScriptForMultisig(1, keys);
-    BOOST_CHECK_EQUAL(s2.GetSigOpCount(true), 3U);
-    BOOST_CHECK_EQUAL(s2.GetSigOpCount(false), 20U);
+    BOOST_CHECK_EQUAL(s2.GetSigOpCount(1), 3U);
+    BOOST_CHECK_EQUAL(s2.GetSigOpCount(0), 20U);
 
     p2sh = GetScriptForDestination(CScriptID(s2));
-    BOOST_CHECK_EQUAL(p2sh.GetSigOpCount(true), 0U);
-    BOOST_CHECK_EQUAL(p2sh.GetSigOpCount(false), 0U);
+    BOOST_CHECK_EQUAL(p2sh.GetSigOpCount(1), 0U);
+    BOOST_CHECK_EQUAL(p2sh.GetSigOpCount(0), 0U);
     CScript scriptSig2;
     scriptSig2 << OP_1 << ToByteVector(dummy) << ToByteVector(dummy) << Serialize(s2);
     BOOST_CHECK_EQUAL(p2sh.GetSigOpCount(scriptSig2), 3U);
