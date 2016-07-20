@@ -35,6 +35,8 @@ const char* ScriptErrorString(const ScriptError serror)
             return "Signature count negative or greater than pubkey count";
         case SCRIPT_ERR_PUBKEY_COUNT:
             return "Pubkey count negative or limit exceeded";
+        case SCRIPT_ERR_NUM_PUSH_SIZE:
+            return "Numeric push size limit exceeded";
         case SCRIPT_ERR_BAD_OPCODE:
             return "Opcode missing or not understood";
         case SCRIPT_ERR_DISABLED_OPCODE:
