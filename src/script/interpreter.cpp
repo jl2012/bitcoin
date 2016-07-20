@@ -292,7 +292,8 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
             if (opcode > OP_16 && ++nOpCount > MAX_OPS_PER_SCRIPT)
                 return set_error(serror, SCRIPT_ERR_OP_COUNT);
 
-            if (opcode == OP_CAT ||
+            if (sigversion <= SIGVERSION_WITNESS_V0 &&
+               (opcode == OP_CAT ||
                 opcode == OP_SUBSTR ||
                 opcode == OP_LEFT ||
                 opcode == OP_RIGHT ||
@@ -306,7 +307,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                 opcode == OP_DIV ||
                 opcode == OP_MOD ||
                 opcode == OP_LSHIFT ||
-                opcode == OP_RSHIFT)
+                opcode == OP_RSHIFT))
                 return set_error(serror, SCRIPT_ERR_DISABLED_OPCODE); // Disabled opcodes.
 
             if (fExec && 0 <= opcode && opcode <= OP_PUSHDATA4) {
@@ -314,6 +315,8 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     return set_error(serror, SCRIPT_ERR_MINIMALDATA);
                 }
                 stack.push_back(vchPushValue);
+            } else if (fExec && sigversion <= SIGVERSION_WITNESS_V0 && opcode > OP_NOP10) {
+                return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
             } else if (fExec || (OP_IF <= opcode && opcode <= OP_ENDIF))
             switch (opcode)
             {
