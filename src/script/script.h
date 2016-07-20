@@ -108,6 +108,7 @@ enum opcodetype
     OP_LEFT = 0x80,
     OP_RIGHT = 0x81,
     OP_SIZE = 0x82,
+    OP_SWAPCAT = 0xba,
 
     // bit logic
     OP_INVERT = 0x83,

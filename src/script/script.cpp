@@ -77,6 +77,7 @@ const char* GetOpName(opcodetype opcode)
     case OP_LEFT                   : return "OP_LEFT";
     case OP_RIGHT                  : return "OP_RIGHT";
     case OP_SIZE                   : return "OP_SIZE";
+    case OP_SWAPCAT                : return "OP_SWAPCAT";
 
     // bit logic
     case OP_INVERT                 : return "OP_INVERT";
