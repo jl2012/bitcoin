@@ -826,6 +826,50 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                 //
                 // Bitwise logic
                 //
+                case OP_INVERT:
+                {
+                    // (in - out)
+                    if (stack.size() < 1)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                    valtype& vch = stacktop(-1);
+                    for (size_t i = 0; i < vch.size(); i++)
+                        vch[i] = ~vch[i];
+                }
+                break;
+
+                case OP_AND:
+                case OP_OR:
+                case OP_XOR:
+                {
+                    // (x1 x2 -- out)
+                    if (stack.size() < 2)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                    valtype& vch1 = stacktop(-1);
+                    valtype& vch2 = stacktop(-2);
+                    if (vch1.size() != vch2.size())
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    valtype vch3(vch1);
+
+                    if (opcode == OP_AND) {
+                        for (size_t i = 0; i < vch1.size(); i++)
+                            vch3[i] &= vch2[i];
+                    }
+                    else if (opcode == OP_OR) {
+                        for (size_t i = 0; i < vch1.size(); i++)
+                            vch3[i] |= vch2[i];
+                    }
+                    else if (opcode == OP_XOR) {
+                        for (size_t i = 0; i < vch1.size(); i++)
+                            vch3[i] ^= vch2[i];
+                    }
+
+                    popstack(stack);
+                    popstack(stack);
+                    stack.push_back(vch3);
+                }
+                break;
+
                 case OP_EQUAL:
                 case OP_EQUALVERIFY:
                 //case OP_NOTEQUAL: // use OP_NUMNOTEQUAL
