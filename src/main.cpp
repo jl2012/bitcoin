@@ -2413,8 +2413,11 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         flags |= SCRIPT_VERIFY_NULLDUMMY;
 
         // Start enforcing MAST rules using versionbits logic. (MAST depends on WITNESS)
-        if (VersionBitsState(pindex->pprev, chainparams.GetConsensus(), Consensus::DEPLOYMENT_MAST, versionbitscache) == THRESHOLD_ACTIVE)
-            flags |= SCRIPT_VERIFY_MAST;
+        // MAST also implies BIP65, BIP68, BIP112, BIP113 as it redefines OP_CHECKLOCKTIMEVERIFY and OP_CHECKSEQUENCEVERIFY
+        if (VersionBitsState(pindex->pprev, chainparams.GetConsensus(), Consensus::DEPLOYMENT_MAST, versionbitscache) == THRESHOLD_ACTIVE) {
+            flags |= (SCRIPT_VERIFY_MAST || SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY || SCRIPT_VERIFY_CHECKSEQUENCEVERIFY);
+            nLockTimeFlags |= (LOCKTIME_VERIFY_SEQUENCE || LOCKTIME_MEDIAN_TIME_PAST);
+        }
     }
 
     int64_t nTime2 = GetTimeMicros(); nTimeForks += nTime2 - nTime1;
