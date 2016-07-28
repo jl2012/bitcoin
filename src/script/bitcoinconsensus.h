@@ -52,6 +52,7 @@ enum
     bitcoinconsensus_SCRIPT_FLAGS_VERIFY_DERSIG              = (1U << 2), // enforce strict DER (BIP66) compliance
     bitcoinconsensus_SCRIPT_FLAGS_VERIFY_CHECKLOCKTIMEVERIFY = (1U << 9), // enable CHECKLOCKTIMEVERIFY (BIP65)
     bitcoinconsensus_SCRIPT_FLAGS_VERIFY_WITNESS             = (1U << 11), // enable WITNESS (BIP141)
+    bitcoinconsensus_SCRIPT_FLAGS_VERIFY_MAST                = (1U << 13), // enable MAST (BIP114)
 };
 
 /// Returns 1 if the input nIn of the serialized transaction pointed to by

@@ -12,6 +12,7 @@
 #include "pubkey.h"
 #include "script/script.h"
 #include "uint256.h"
+#include "consensus/merkle.h"
 
 using namespace std;
 
@@ -229,7 +230,7 @@ bool static CheckMinimalPush(const valtype& data, opcodetype opcode) {
     return true;
 }
 
-bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
+bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, int nOpCount, ScriptError* serror)
 {
     static const CScriptNum bnZero(0);
     static const CScriptNum bnOne(1);
@@ -249,7 +250,6 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
     set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
     if (script.size() > MAX_SCRIPT_SIZE)
         return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
-    int nOpCount = 0;
     bool fRequireMinimal = (flags & SCRIPT_VERIFY_MINIMALDATA) != 0;
 
     try
@@ -1327,6 +1327,117 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         } else {
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
         }
+    } else if (witversion == 1 && program.size() == 32 && (flags & SCRIPT_VERIFY_MAST)) {
+        CHashWriter sRoot(SER_GETHASH, 0);
+        CHashWriter sScriptHash(SER_GETHASH, 0);
+        uint32_t nMASTVersion = 0;
+        size_t stacksize = witness.stack.size();
+        if (stacksize < 4)
+            return set_error(serror, SCRIPT_ERR_INVALID_MAST_STACK);
+        std::vector<unsigned char> metadata = witness.stack.back(); // The last witness stack item is metadata
+        if (metadata.size() < 1 || metadata.size() > 5)
+            return set_error(serror, SCRIPT_ERR_INVALID_MAST_STACK);
+
+        // The first byte of metadata is the number of subscripts (1 to 255)
+        uint32_t nSubscript = static_cast<uint32_t>(metadata[0]);
+        if (nSubscript == 0 || stacksize < nSubscript + 3)
+            return set_error(serror, SCRIPT_ERR_INVALID_MAST_STACK);
+        int nOpCount = nSubscript; // Each condition consumes a nOpCount
+        sScriptHash << metadata[0];
+
+        // The rest of metadata is MAST version in minimally-coded unsigned little endian int
+        if (metadata.back() == 0)
+            return set_error(serror, SCRIPT_ERR_INVALID_MAST_STACK);
+        if (metadata.size() > 1) {
+            for (size_t i = 1; i != metadata.size(); ++i)
+                nMASTVersion |= static_cast<uint32_t>(metadata[i]) << 8 * (i - 1);
+        }
+
+        // Unknown MAST version is non-standard
+        if (nMASTVersion > 0 && flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM)
+            return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
+
+        sRoot << nMASTVersion;
+
+        // The second last witness stack item is the pathdata
+        // Size of pathdata must be divisible by 32 (0 is allowed)
+        // Depth of the Merkle tree is implied by the size of pathdata, and must not be greater than 32
+        std::vector<unsigned char> pathdata = witness.stack.at(stacksize - 2);
+        if (pathdata.size() & 0x1F)
+            return set_error(serror, SCRIPT_ERR_INVALID_MAST_STACK);
+        unsigned int depth = pathdata.size() >> 5;
+        if (depth > 32)
+            return set_error(serror, SCRIPT_ERR_INVALID_MAST_STACK);
+
+        // Each level of Merkle tree consumes a nOpCount
+        // Evaluation of version 0 MAST terminates early if there are too many nOpCount
+        // Not enforced in unknown MAST version for upgrade flexibility
+        nOpCount = nOpCount + depth;
+        if (nMASTVersion == 0 && nOpCount > MAX_OPS_PER_SCRIPT)
+            return set_error(serror, SCRIPT_ERR_OP_COUNT);
+
+        // path is a vector of 32-byte hashes
+        std::vector <uint256> path;
+        path.resize(depth);
+        for (unsigned int j = 0; j < depth; j++)
+            memcpy(path[j].begin(), &pathdata[32 * j], 32);
+
+        // The third last witness stack item is the positiondata
+        // Position is in minimally-coded unsigned little endian int
+        std::vector<unsigned char> positiondata = witness.stack.at(stacksize - 3);
+        if (positiondata.size() > 4)
+            return set_error(serror, SCRIPT_ERR_INVALID_MAST_STACK);
+        uint32_t position = 0;
+        if (positiondata.size() > 0) {
+            if (positiondata.back() == 0)
+                return set_error(serror, SCRIPT_ERR_INVALID_MAST_STACK);
+            for (size_t k = 0; k != positiondata.size(); ++k)
+                position |= static_cast<uint32_t>(positiondata[k]) << 8 * k;
+        }
+
+        // Position value must not exceed the number of leaves at the depth
+        if (depth < 32) {
+            if (position >= (1U << depth))
+                return set_error(serror, SCRIPT_ERR_INVALID_MAST_STACK);
+        }
+
+        // Sub-scripts are located before positiondata
+        for (size_t i = stacksize - nSubscript - 3; i <= stacksize - 4; i++) {
+            CScript subscript(witness.stack.at(i).begin(), witness.stack.at(i).end());
+
+            // Evaluation of version 0 MAST terminates early if script is oversize
+            // Not enforced in unknown MAST version for upgrade flexibility
+            if (nMASTVersion == 0 && (scriptPubKey.size() + subscript.size()) > MAX_SCRIPT_SIZE)
+                return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
+            uint256 hashSubScript;
+            CHash256().Write(&subscript[0], subscript.size()).Finalize(hashSubScript.begin());
+            sScriptHash << hashSubScript;
+            scriptPubKey = scriptPubKey + subscript; // Final scriptPubKey is a serialization of subscripts
+        }
+        uint256 hashScript = sScriptHash.GetHash();
+
+        // Calculate MAST Root and compare against witness program
+        uint256 rootScript = ComputeMerkleRootFromBranch(hashScript, path, position);
+        sRoot << rootScript;
+        uint256 rootMAST = sRoot.GetHash();
+        if (memcmp(rootMAST.begin(), &program[0], 32))
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+
+        if (nMASTVersion == 0) {
+            stack = std::vector<std::vector<unsigned char> >(witness.stack.begin(), witness.stack.end() - 3 - nSubscript);
+            for (unsigned int i = 0; i < stack.size(); i++) {
+                if (stack.at(i).size() > MAX_SCRIPT_ELEMENT_SIZE)
+                    return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+            }
+
+            // Script evaluation must not fail, and return an empty stack
+            if (!EvalScript(stack, scriptPubKey, flags, checker, SIGVERSION_WITNESS_V1, nOpCount, serror))
+                return false;
+            if (stack.size() != 0)
+                return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+        }
+
+        return set_success(serror);
     } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) {
         return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
     } else {
@@ -1340,7 +1451,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
     }
 
-    if (!EvalScript(stack, scriptPubKey, flags, checker, SIGVERSION_WITNESS_V0, serror)) {
+    if (!EvalScript(stack, scriptPubKey, flags, checker, SIGVERSION_WITNESS_V0, 0, serror)) {
         return false;
     }
 
@@ -1367,12 +1478,12 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     }
 
     vector<vector<unsigned char> > stack, stackCopy;
-    if (!EvalScript(stack, scriptSig, flags, checker, SIGVERSION_BASE, serror))
+    if (!EvalScript(stack, scriptSig, flags, checker, SIGVERSION_BASE, 0, serror))
         // serror is set
         return false;
     if (flags & SCRIPT_VERIFY_P2SH)
         stackCopy = stack;
-    if (!EvalScript(stack, scriptPubKey, flags, checker, SIGVERSION_BASE, serror))
+    if (!EvalScript(stack, scriptPubKey, flags, checker, SIGVERSION_BASE, 0, serror))
         // serror is set
         return false;
     if (stack.empty())
@@ -1418,7 +1529,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         CScript pubKey2(pubKeySerialized.begin(), pubKeySerialized.end());
         popstack(stack);
 
-        if (!EvalScript(stack, pubKey2, flags, checker, SIGVERSION_BASE, serror))
+        if (!EvalScript(stack, pubKey2, flags, checker, SIGVERSION_BASE, 0, serror))
             // serror is set
             return false;
         if (stack.empty())
