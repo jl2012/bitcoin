@@ -67,6 +67,7 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnes
      * @return True if all inputs (scriptSigs) use only standard transaction forms
      */
 bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs);
+bool IsBadWitness(const CTransaction& tx, const CCoinsViewCache& mapInputs);
 
 extern unsigned int nBytesPerSigOp;
 

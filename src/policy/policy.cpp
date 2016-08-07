@@ -154,6 +154,75 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
     return true;
 }
 
+bool IsBadWitness(const CTransaction& tx, const CCoinsViewCache& mapInputs)
+{
+    if (tx.IsCoinBase())
+        return false; // Coinbases are skipped
+
+    for (unsigned int i = 0; i < tx.vin.size(); i++)
+    {
+        const CTxOut& prev = mapInputs.GetOutputFor(tx.vin[i]);
+
+        std::vector<std::vector<unsigned char> > vSolutions;
+        txnouttype whichType;
+        // get the scriptPubKey corresponding to this input:
+        CScript prevScript = prev.scriptPubKey;
+        Solver(prevScript, whichType, vSolutions);
+
+        if (whichType == TX_SCRIPTHASH)
+        {
+            std::vector<std::vector<unsigned char> > stack;
+            // convert the scriptSig into a stack, so we can inspect the redeemScript
+            if (!EvalScript(stack, tx.vin[i].scriptSig, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), SIGVERSION_BASE))
+                return true;
+            if (stack.empty())
+                return true;
+            prevScript = CScript(stack.back().begin(), stack.back().end());
+        }
+
+        int witnessversion = 0;
+        std::vector<unsigned char> witnessprogram;
+
+        // Non-witness program must not be associated with any witness
+        if (!prevScript.IsWitnessProgram(witnessversion, witnessprogram) && !tx.wit.vtxinwit[i].IsNull())
+            return true;
+
+        // Witness for P2WPKH must have 2 stack items. Signature must be <= 73 bytes.
+        // Pubkey must be <= 65 bytes.
+        // If pubkey size > 33 bytes, make sure it matches witness program.
+        if (witnessversion == 0 && witnessprogram.size() == 20) {
+            if (tx.wit.vtxinwit[i].scriptWitness.stack.size() != 2)
+                return true;
+            std::vector<unsigned char> hashPubKey(20);
+            std::vector<unsigned char> pubKey = tx.wit.vtxinwit[i].scriptWitness.stack[1];
+            if (tx.wit.vtxinwit[i].scriptWitness.stack[0].size() > 73 || pubKey.size() > 65)
+                return true;
+            if (pubKey.size() > 33) {
+                CHash160().Write(begin_ptr(pubKey), pubKey.size()).Finalize(begin_ptr(hashPubKey));
+                if (hashPubKey != witnessprogram)
+                    return true;
+            }
+        }
+
+        // Witness for P2WSH must not be empty.
+        // Make sure the witnessScript size is <= 10000 bytes and matches witness program.
+        if (witnessversion == 0 && witnessprogram.size() == 32) {
+            if (tx.wit.vtxinwit[i].IsNull())
+                return true;
+            CScript witnessScript = CScript(tx.wit.vtxinwit[i].scriptWitness.stack.back().begin(), tx.wit.vtxinwit[i].scriptWitness.stack.back().end());
+            uint256 hashWitnessScript;
+            if (witnessScript.size() > 10000)
+                return true;
+            CSHA256().Write(begin_ptr(witnessScript), witnessScript.size()).Finalize(hashWitnessScript.begin());
+            if (memcmp(hashWitnessScript.begin(), &witnessprogram[0], 32))
+                return true;
+            // more P2WSH tests could be added here
+        }
+    }
+
+    return false;
+}
+
 unsigned int nBytesPerSigOp = DEFAULT_BYTES_PER_SIGOP;
 
 int64_t GetVirtualTransactionSize(int64_t nWeight, int64_t nSigOpCost)
