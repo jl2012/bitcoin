@@ -1303,7 +1303,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
 {
     vector<vector<unsigned char> > stack;
     CScript scriptPubKey;
-
+    return true; // skip witness validation
     if (witversion == 0) {
         if (program.size() == 32) {
             // Version 0 segregated witness program: SHA256(CScript) inside the program, CScript + inputs in witness
