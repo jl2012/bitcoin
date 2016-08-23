@@ -216,6 +216,26 @@ bool IsBadWitness(const CTransaction& tx, const CCoinsViewCache& mapInputs)
             CSHA256().Write(begin_ptr(witnessScript), witnessScript.size()).Finalize(hashWitnessScript.begin());
             if (memcmp(hashWitnessScript.begin(), &witnessprogram[0], 32))
                 return true;
+
+            // Canonical P2WSH multisig must use null dummy value. Signature must be <= 73 bytes.
+            std::vector<std::vector<unsigned char> > vWitnessScriptSolutions;
+            txnouttype whichWitnessScriptType;
+            if (Solver(witnessScript, whichWitnessScriptType, vWitnessScriptSolutions)) {
+                if (whichWitnessScriptType == TX_MULTISIG) {
+                    unsigned char m = vWitnessScriptSolutions.front()[0];
+                    unsigned char n = vWitnessScriptSolutions.back()[0];
+                    if (m > 0 && n > 0 && m <= n) {
+                        if (tx.wit.vtxinwit[i].scriptWitness.stack.size() != (m + 2))
+                            return true;
+                        if (tx.wit.vtxinwit[i].scriptWitness.stack[0].size()) //assuming BIP146
+                            return true;
+                        for (unsigned int j = 1; j <= m; j++) {
+                            if (tx.wit.vtxinwit[i].scriptWitness.stack[j].size() > 73)
+                                return true;
+                        }
+                    }
+                }
+            }
             // more P2WSH tests could be added here
         }
     }
