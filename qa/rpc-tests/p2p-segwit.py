@@ -943,7 +943,7 @@ class SegWitTest(BitcoinTestFramework):
         # Verify that unnecessary witnesses are rejected.
         self.test_node.announce_tx_and_wait_for_getdata(tx)
         assert_equal(len(self.nodes[0].getrawmempool()), 0)
-        self.test_node.test_transaction_acceptance(tx, with_witness=True, accepted=False)
+        self.test_node.test_transaction_acceptance(tx, with_witness=True, accepted=False, reason=b'bad-witness')
 
         # Verify that removing the witness succeeds.
         # Re-announcing won't result in a getdata for ~2.5 minutes, so just
