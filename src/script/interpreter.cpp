@@ -11,6 +11,7 @@
 #include "crypto/sha256.h"
 #include "pubkey.h"
 #include "script/script.h"
+#include "script/standard.h"
 #include "uint256.h"
 
 using namespace std;
@@ -1516,4 +1517,80 @@ size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey,
     }
 
     return 0;
+}
+
+bool IsBadWitness2(const CScript& scriptSig, CScript prevScript, const CScriptWitness& witness)
+{
+    if (!witness.stack.size())
+        return false;
+
+    if (prevScript.IsPayToScriptHash()) {
+        if (!scriptSig.size() || !scriptSig.IsPushOnly())
+            return true;
+        CScript::const_iterator pc = scriptSig.begin();
+        vector<unsigned char> data;
+        while (pc < scriptSig.end()) {
+            opcodetype opcode;
+            scriptSig.GetOp(pc, opcode, data);
+        }
+        prevScript = CScript(data.begin(), data.end());
+    }
+
+    int witnessversion = 0;
+    std::vector<unsigned char> witnessprogram;
+
+    // Non-witness program must not be associated with any witness
+    if (!prevScript.IsWitnessProgram(witnessversion, witnessprogram) && witness.stack.size() > 0)
+        return true;
+
+    // Witness for P2WPKH must have 2 stack items. Signature must be <= 73 bytes.
+    // Pubkey must be <= 65 bytes.
+    // If pubkey size > 33 bytes, make sure it matches witness program.
+    if (witnessversion == 0 && witnessprogram.size() == 20) {
+        if (witness.stack.size() != 2)
+            return true;
+        std::vector<unsigned char> hashPubKey(20);
+        std::vector<unsigned char> pubKey = witness.stack[1];
+        if (witness.stack[0].size() > 73 || pubKey.size() > 65)
+            return true;
+        if (pubKey.size() > 33) {
+            CHash160().Write(begin_ptr(pubKey), pubKey.size()).Finalize(begin_ptr(hashPubKey));
+            if (hashPubKey != witnessprogram)
+                return true;
+        }
+    }
+
+    // Make sure the witnessScript size is <= 10000 bytes and matches witness program.
+    if (witnessversion == 0 && witnessprogram.size() == 32) {
+        CScript witnessScript = CScript(witness.stack.back().begin(), witness.stack.back().end());
+        uint256 hashWitnessScript;
+        if (witnessScript.size() > 10000)
+            return true;
+        CSHA256().Write(begin_ptr(witnessScript), witnessScript.size()).Finalize(hashWitnessScript.begin());
+        if (memcmp(hashWitnessScript.begin(), &witnessprogram[0], 32))
+            return true;
+
+        // Canonical P2WSH multisig must use null dummy value. Signature must be <= 73 bytes.
+        std::vector<std::vector<unsigned char> > vWitnessScriptSolutions;
+        //int whichWitnessScriptType;
+        txnouttype whichWitnessScriptType;
+        if (Solver(witnessScript, whichWitnessScriptType, vWitnessScriptSolutions)) {
+            if (whichWitnessScriptType == TX_MULTISIG) {
+                unsigned char m = vWitnessScriptSolutions.front()[0];
+                unsigned char n = vWitnessScriptSolutions.back()[0];
+                if (m > 0 && n > 0 && m <= n) {
+                    if (witness.stack.size() != (m + 2))
+                        return true;
+                    if (witness.stack[0].size()) //assuming BIP146
+                        return true;
+                    for (unsigned int j = 1; j <= m; j++) {
+                        if (witness.stack[j].size() > 73)
+                            return true;
+                    }
+                }
+            }
+        }
+    }
+
+    return false;
 }

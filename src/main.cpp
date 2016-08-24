@@ -1261,8 +1261,18 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-nonstandard-inputs");
 
         // Check for bad witness
-        if (!tx.wit.IsNull() && IsBadWitness(tx, view))
-            return state.DoS(100, false, REJECT_INVALID, "bad-witness", true);
+        //if (!tx.wit.IsNull() && IsBadWitness(tx, view))
+        //    return state.DoS(100, false, REJECT_INVALID, "bad-witness", true);
+
+        static const CScriptWitness witnessEmpty;
+        if (!tx.wit.IsNull()) {
+            for (unsigned int i = 0; i < tx.vin.size(); i++) {
+                const CTxOut &prevout = view.GetOutputFor(tx.vin[i]);
+                if (IsBadWitness2(tx.vin[i].scriptSig, prevout.scriptPubKey, i < tx.wit.vtxinwit.size() ? tx.wit.vtxinwit[i].scriptWitness : witnessEmpty)) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-witness", true);
+                }
+            }
+        }
 
         int64_t nSigOpsCost = GetTransactionSigOpCost(tx, view, STANDARD_SCRIPT_VERIFY_FLAGS);
 
