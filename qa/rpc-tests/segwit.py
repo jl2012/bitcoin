@@ -242,5 +242,41 @@ class SegWitTest(BitcoinTestFramework):
             # This is an acceptable outcome
             pass
 
+        print("Verify behaviour of addwitnessaddress")
+        # Import a compressed key and an uncompressed key, generate some multisig addresses
+        self.nodes[0].importprivkey("92e6XLo5jVAVwrQKPNTs93oQco8f8sDNBcpv73Dsrs397fQtFQn")
+        uncompressed_address = ["mvozP4UwyGD2mGZU4D2eMvMLPB9WkMmMQu"]
+        self.nodes[0].importprivkey("cSEjNvNPtXJvm73v9jjaJXMqEzcoKidaVs8VPeoqV5rSpJTK54Rt")
+        compressed_address = ["mhc6haiMVa5Drgdref1GLMpwQ7a3BNpV56"]
+        assert (self.nodes[0].validateaddress(uncompressed_address[0])['iscompressed'] == False)
+        assert (self.nodes[0].validateaddress(compressed_address[0])['iscompressed'] == True)
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(1, [uncompressed_address[0]]))
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(2, [uncompressed_address[0], compressed_address[0]]))
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(2, [compressed_address[0], uncompressed_address[0]]))
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(2, [uncompressed_address[0], uncompressed_address[0]]))
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(3, [uncompressed_address[0], compressed_address[0], compressed_address[0]]))
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(3, [compressed_address[0], uncompressed_address[0], compressed_address[0]]))
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(3, [compressed_address[0], compressed_address[0], uncompressed_address[0]]))
+        uncompressed_address.append(self.nodes[0].addmultisigaddress(3, [uncompressed_address[0], uncompressed_address[0], uncompressed_address[0]]))
+        compressed_address.append(self.nodes[0].addmultisigaddress(1, [compressed_address[0]]))
+        compressed_address.append(self.nodes[0].addmultisigaddress(2, [compressed_address[0], compressed_address[0]]))
+        compressed_address.append(self.nodes[0].addmultisigaddress(3, [compressed_address[0], compressed_address[0], compressed_address[0]]))
+        unknown_address = ["mtKKyoHabkk6e4ppT7NaM7THqPUt7AzPrT", "2NDP3jLWAFT8NDAiUa9qiE6oBt2awmMq7Dx"]
+
+        # addwitnessaddress should refuse to return a witness address if an uncompressed key is used or the address is
+        # not in the wallet
+        for i in uncompressed_address + unknown_address:
+            try:
+                self.nodes[0].addwitnessaddress(i)
+            except JSONRPCException as exp:
+                assert_equal(exp.error["message"], "Public key or redeemscript not known to wallet, or the key is uncompressed")
+        witaddress = []
+        for i in compressed_address:
+            witaddress.append(self.nodes[0].addwitnessaddress(i))
+
+        # addwitnessaddress should return the same address if it is a known P2SH-P2WSH address
+        witaddress_repeat = self.nodes[0].addwitnessaddress(witaddress[0])
+        assert_equal(witaddress[0], witaddress_repeat)
+
 if __name__ == '__main__':
     SegWitTest().main()
