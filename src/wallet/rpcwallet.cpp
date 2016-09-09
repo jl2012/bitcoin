@@ -1026,6 +1026,10 @@ public:
     bool operator()(const CKeyID &keyID) {
         CPubKey pubkey;
         if (pwalletMain && pwalletMain->GetPubKey(keyID, pubkey)) {
+            if (pubkey.size() != 33)
+                return false;
+            if (pubkey[0] != 0x02 && pubkey[0] != 0x03)
+                return false;
             CScript basescript;
             basescript << ToByteVector(pubkey) << OP_CHECKSIG;
             CScript witscript = GetScriptForWitness(basescript);
@@ -1045,6 +1049,18 @@ public:
                 result = scriptID;
                 return true;
             }
+            txnouttype typ;
+            std::vector<std::vector<unsigned char> > vSolutions;
+            if (Solver(subscript, typ, vSolutions) && typ == TX_MULTISIG) {
+                for (size_t i = 1; i < vSolutions.size() - 1; i++) {
+                    if (vSolutions[i].size() != 33)
+                        return false;
+                    if (vSolutions[i][0] != 0x02 && vSolutions[i][0] != 0x03)
+                        return false;
+                }
+            }
+            else
+                return false;
             CScript witscript = GetScriptForWitness(subscript);
             pwalletMain->AddCScript(witscript);
             result = CScriptID(witscript);
@@ -1090,7 +1106,7 @@ UniValue addwitnessaddress(const UniValue& params, bool fHelp)
     CTxDestination dest = address.Get();
     bool ret = boost::apply_visitor(w, dest);
     if (!ret) {
-        throw JSONRPCError(RPC_WALLET_ERROR, "Public key or redeemscript not known to wallet");
+        throw JSONRPCError(RPC_WALLET_ERROR, "Public key or redeemscript not known to wallet, or the key is uncompressed");
     }
 
     pwalletMain->SetAddressBook(w.result, "", "receive");
