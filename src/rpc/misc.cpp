@@ -323,11 +323,13 @@ UniValue createmultisig(const UniValue& params, bool fHelp)
 
 UniValue createwitnessaddress(const UniValue& params, bool fHelp)
 {
-    if (fHelp || params.size() < 1 || params.size() > 1)
+    if (fHelp || params.size() < 1 || params.size() > 1 || Params().NetworkIDString() == "main")
     {
         string msg = "createwitnessaddress \"script\"\n"
-            "\nCreates a witness address for a particular script.\n"
+            "\nFOR TESTNET ONLY: Creates a witness address for a particular script.\n"
             "It returns a json object with the address and witness script.\n"
+            "WARNING: It does NOT examine validity of the script in any way. Resulting address may be unspendable\n"
+            "WARNING: Semantics and network rules of witness and non-witness scripts may not be identical.\n"
 
             "\nArguments:\n"
             "1. \"script\"       (string, required) A hex encoded script\n"
