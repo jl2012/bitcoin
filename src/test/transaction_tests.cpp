@@ -694,6 +694,65 @@ BOOST_AUTO_TEST_CASE(test_witness)
     CheckWithFlag(output1, input1, STANDARD_SCRIPT_VERIFY_FLAGS, true);
 }
 
+//BOOST_AUTO_TEST_CASE(test_txsize)
+//{
+//    LOCK(cs_main);
+//    CBasicKeyStore keystore;
+//    CCoinsView coinsDummy;
+//    CCoinsViewCache coins(&coinsDummy);
+//    std::vector<CMutableTransaction> dummyTransactions = SetupDummyInputs(keystore, coins);
+//
+//    CMutableTransaction t;
+//    t.vin.resize(1);
+//    t.vin[0].prevout.hash = dummyTransactions[0].GetHash();
+//    t.vin[0].prevout.n = 1;
+//    t.vin[0].scriptSig << std::vector<unsigned char>(65, 0);
+//    t.vout.resize(1);
+//    t.vout[0].nValue = 90*CENT;
+//    CKey key;
+//    key.MakeNewKey(true);
+//    t.vout[0].scriptPubKey = GetScriptForDestination(key.GetPubKey().GetID());
+//
+//    int64_t s0 = GetTransactionSigHashSize(t);
+//    int64_t s1 = GetTransactionSigHashSize1(t);
+//    int64_t s2 = GetTransactionSigHashSize2(t);
+//    BOOST_CHECK_EQUAL(s0, s2);
+//    BOOST_CHECK_EQUAL(s0, s1);
+//
+//    t.vin[0].scriptSig = CScript();
+//    for (unsigned int i=1; i<=252; i++) {
+//        t.vin[0].scriptSig << OP_0;
+//    }
+//    s0 = GetTransactionSigHashSize(t);
+//    s1 = GetTransactionSigHashSize1(t);
+//    s2 = GetTransactionSigHashSize2(t);
+//    BOOST_CHECK_EQUAL(s0, s2);
+//    BOOST_CHECK_EQUAL(s0, s1);
+//
+//    t.vin[0].scriptSig << OP_0;
+//    s0 = GetTransactionSigHashSize(t);
+//    s1 = GetTransactionSigHashSize1(t);
+//    s2 = GetTransactionSigHashSize2(t);
+//    BOOST_CHECK_EQUAL(s0, s2);
+//    BOOST_CHECK_EQUAL(s0, s1);
+//    for (unsigned int i=254; i<=65535; i++) {
+//        t.vin[0].scriptSig << OP_0;
+//    }
+//
+//    s0 = GetTransactionSigHashSize(t);
+//    s1 = GetTransactionSigHashSize1(t);
+//    s2 = GetTransactionSigHashSize2(t);
+//    BOOST_CHECK_EQUAL(s0, s2);
+//    BOOST_CHECK_EQUAL(s0, s1);
+//    t.vin[0].scriptSig << OP_0;
+//
+//    s0 = GetTransactionSigHashSize(t);
+//    s1 = GetTransactionSigHashSize1(t);
+//    s2 = GetTransactionSigHashSize2(t);
+//    BOOST_CHECK_EQUAL(s0, s2);
+//    BOOST_CHECK_EQUAL(s0, s1);
+//}
+
 BOOST_AUTO_TEST_CASE(test_IsStandard)
 {
     LOCK(cs_main);

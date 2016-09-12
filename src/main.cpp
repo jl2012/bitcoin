@@ -75,7 +75,7 @@ bool fPruneMode = false;
 bool fIsBareMultisigStd = DEFAULT_PERMIT_BAREMULTISIG;
 bool fRequireStandard = true;
 bool fCheckBlockIndex = false;
-bool fCheckpointsEnabled = DEFAULT_CHECKPOINTS_ENABLED;
+bool fCheckpointsEnabled = false;
 size_t nCoinCacheUsage = 5000 * 300;
 uint64_t nPruneTarget = 0;
 int64_t nMaxTipAge = DEFAULT_MAX_TIP_AGE;
@@ -1039,9 +1039,34 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
     return nSigOps;
 }
 
-
-
-
+void GetBaseSigHashOpCount(const CTransaction& tx, const CCoinsViewCache& inputs, int flags, unsigned int& nSigHashOps, unsigned int& nAccuSigOps, unsigned int& nCodeSeparator)
+{
+    //if (tx.IsCoinBase())
+    //    return 0;
+    //unsigned int nSigHashOps = 0;
+    for (unsigned int i = 0; i < tx.vin.size(); i++) {
+        nAccuSigOps += tx.vin[i].scriptSig.GetSigOpCount(true);
+        nSigHashOps += tx.vin[i].scriptSig.GetSigHashOpCount();
+        nCodeSeparator += tx.vin[i].scriptSig.HasCodeSeparator();
+        if (!tx.IsCoinBase()) {
+            const CTxOut &prevout = inputs.GetOutputFor(tx.vin[i]);
+            nAccuSigOps += prevout.scriptPubKey.GetSigOpCount(true);
+            nSigHashOps += prevout.scriptPubKey.GetSigHashOpCount();
+            nCodeSeparator += prevout.scriptPubKey.HasCodeSeparator();
+            if (flags & SCRIPT_VERIFY_P2SH && prevout.scriptPubKey.IsPayToScriptHash()) {
+                nAccuSigOps += prevout.scriptPubKey.GetSigOpCount(tx.vin[i].scriptSig);
+                nSigHashOps += prevout.scriptPubKey.GetSigHashOpCount(tx.vin[i].scriptSig);
+                nCodeSeparator += prevout.scriptPubKey.HasCodeSeparator(tx.vin[i].scriptSig);
+            }
+        }
+    }
+    if (tx.IsCoinBase()) {
+        nSigHashOps = 0;
+        nAccuSigOps = 0;
+        nCodeSeparator = 0;
+    }
+    //return nSigHashOps;
+}
 
 bool CheckTransaction(const CTransaction& tx, CValidationState &state)
 {
@@ -1257,6 +1282,13 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         // Check for non-standard pay-to-script-hash in inputs
         if (fRequireStandard && !AreInputsStandard(tx, view))
             return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-nonstandard-inputs");
+
+        /*if (fRequireStandard) {
+            uint64_t hashsize = GetTransactionSigHashSize(tx) * GetBaseSigHashOpCount(tx, view, STANDARD_SCRIPT_VERIFY_FLAGS);
+            unsigned int sz = GetTransactionWeight(tx);
+            if (hashsize / sz > MAX_STANDARD_HASH_PER_WEIGHT)
+                return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-nonstandard-too-much-sighashing");
+        }*/
 
         int64_t nSigOpsCost = GetTransactionSigOpCost(tx, view, STANDARD_SCRIPT_VERIFY_FLAGS);
 
@@ -1996,22 +2028,22 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
 
                 // Verify signature
                 CScriptCheck check(*coins, tx, i, flags, cacheStore, &txdata);
-                if (pvChecks) {
+                /*if (pvChecks) {
                     pvChecks->push_back(CScriptCheck());
-                    check.swap(pvChecks->back());
-                } else if (!check()) {
-                    if (flags & STANDARD_NOT_MANDATORY_VERIFY_FLAGS) {
-                        // Check whether the failure was caused by a
-                        // non-mandatory script verification check, such as
-                        // non-standard DER encodings or non-null dummy
-                        // arguments; if so, don't trigger DoS protection to
-                        // avoid splitting the network between upgraded and
-                        // non-upgraded nodes.
-                        CScriptCheck check2(*coins, tx, i,
-                                flags & ~STANDARD_NOT_MANDATORY_VERIFY_FLAGS, cacheStore, &txdata);
-                        if (check2())
-                            return state.Invalid(false, REJECT_NONSTANDARD, strprintf("non-mandatory-script-verify-flag (%s)", ScriptErrorString(check.GetScriptError())));
-                    }
+                    check.swap(pvChecks->back());*/
+                if (!check()) {
+//                    if (flags & STANDARD_NOT_MANDATORY_VERIFY_FLAGS) {
+//                        // Check whether the failure was caused by a
+//                        // non-mandatory script verification check, such as
+//                        // non-standard DER encodings or non-null dummy
+//                        // arguments; if so, don't trigger DoS protection to
+//                        // avoid splitting the network between upgraded and
+//                        // non-upgraded nodes.
+//                        CScriptCheck check2(*coins, tx, i,
+//                                flags & ~STANDARD_NOT_MANDATORY_VERIFY_FLAGS, cacheStore, &txdata);
+//                        if (check2())
+//                            return state.Invalid(false, REJECT_NONSTANDARD, strprintf("non-mandatory-script-verify-flag (%s)", ScriptErrorString(check.GetScriptError())));
+//                    }
                     // Failures of other flags indicate a transaction that is
                     // invalid in new blocks, e.g. a invalid P2SH. We DoS ban
                     // such nodes as they are not following the protocol. That
@@ -2019,7 +2051,8 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
                     // as to the correct behavior - we may want to continue
                     // peering with non-upgraded nodes even after soft-fork
                     // super-majority signaling has occurred.
-                    return state.DoS(100,false, REJECT_INVALID, strprintf("mandatory-script-verify-flag-failed (%s)", ScriptErrorString(check.GetScriptError())));
+                    // return state.DoS(100,false, REJECT_INVALID, strprintf("mandatory-script-verify-flag-failed (%s)", ScriptErrorString(check.GetScriptError())));
+                    return state.DoS(0, false, REJECT_INVALID, strprintf("script-verify-flag (%s)", ScriptErrorString(check.GetScriptError())));
                 }
             }
         }
@@ -2366,6 +2399,15 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
     unsigned int flags = fStrictPayToScriptHash ? SCRIPT_VERIFY_P2SH : SCRIPT_VERIFY_NONE;
 
+    if (flags & SCRIPT_VERIFY_P2SH) {
+        flags |= SCRIPT_VERIFY_CLEANSTACK;
+        flags |= SCRIPT_VERIFY_WITNESS;
+    }
+    flags |= SCRIPT_VERIFY_STRICTENC;
+    flags |= SCRIPT_VERIFY_NULLDUMMY;
+    flags |= SCRIPT_VERIFY_SIGPUSHONLY;
+    flags |= SCRIPT_VERIFY_MINIMALDATA;
+
     // Start enforcing the DERSIG (BIP66) rule
     if (pindex->nHeight >= chainparams.GetConsensus().BIP66Height) {
         flags |= SCRIPT_VERIFY_DERSIG;
@@ -2459,11 +2501,22 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
             std::vector<CScriptCheck> vChecks;
             bool fCacheResults = fJustCheck; /* Don't cache results if we're actually connecting blocks (still consult the cache, though) */
-            if (!CheckInputs(tx, state, view, fScriptChecks, flags, fCacheResults, txdata[i], nScriptCheckThreads ? &vChecks : NULL))
-                return error("ConnectBlock(): CheckInputs on %s failed with %s",
-                    tx.GetHash().ToString(), FormatStateMessage(state));
+            if (!CheckInputs(tx, state, view, true, flags, fCacheResults, txdata[i], nScriptCheckThreads ? &vChecks : NULL))
+                LogPrintf("E %s %s\n", tx.GetHash().ToString(), FormatStateMessage(state));
+                //return error("ConnectBlock(): CheckInputs on %s failed with %s",
+                //    tx.GetHash().ToString(), FormatStateMessage(state));
             control.Add(vChecks);
         }
+
+        unsigned int hashSize = GetTransactionSigHashSize(tx);
+        unsigned int txSize = GetTransactionWeight(tx) / 4;
+        unsigned int nTxInputs = tx.vin.size();
+        unsigned int nTxOutputs = tx.vout.size();
+        unsigned int nSigHashOps = 0;
+        unsigned int nAccuSigOps = 0;
+        unsigned int nCodeSeparator = 0;
+        GetBaseSigHashOpCount(tx, view, flags, nSigHashOps, nAccuSigOps, nCodeSeparator);
+        LogPrintf("T %s %u %u %u %u %u %u %u\n", tx.GetHash().ToString(), txSize, hashSize, nTxInputs, nTxOutputs, nAccuSigOps, nSigHashOps, nCodeSeparator);
 
         CTxUndo undoDummy;
         if (i > 0) {

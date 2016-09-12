@@ -620,6 +620,30 @@ public:
      */
     unsigned int GetSigOpCount(const CScript& scriptSig) const;
 
+    /**
+     * Count the maximum number of sighashing-equivalent operations in a non-segwit script.
+     * It assumes that without being separated by OP_CODESEPARATOR, sighash is performed once only for one type.
+     * It also assumes that only 6 sighash types are allowed: 1, 2, 3, 0x81, 0x82, 0x83
+     * Different sighash type has different level of hashing.
+     * Type 1 (ALL) hashes all vin and vout
+     * Type 2 (NONE) hashes all vin. No vout is hashed at all
+     * Type 3 (SINGLE) hashes all vin. Only 1 vout is hashed, but it also hashes lower index vouts with empty
+     *   scriptPubKey. The overall result is hashing all vin and 50% of all vout on average.
+     * Type 0x80 (ANYONECANPAY) hashes only 1 vin, which is O(n) and negligible, therefore,
+     * Type 0x81 hashes all vout;
+     * Type 0x82 is negligible;
+     * Type 0x83 hashes 50% of all vout on average.
+     * The worst case with 6 sighash types would be:
+     *   (vin + vout) + vin + (vin + 0.5vout) + vout + 0.5vout = 3vin + 3vout
+     * Therefore, within the same OP_CODESEPARATOR block, a transaction must not be hashed more than 3 times, plus
+     * negligible O(n) overhead including nVersion, nLockTime, scriptCode, etc.
+     */
+    unsigned int GetSigHashOpCount() const;
+    unsigned int GetSigHashOpCount(const CScript& scriptSig) const;
+
+    unsigned int HasCodeSeparator() const;
+    unsigned int HasCodeSeparator(const CScript& scriptSig) const;
+
     bool IsPayToScriptHash() const;
     bool IsPayToWitnessScriptHash() const;
     bool IsWitnessProgram(int& version, std::vector<unsigned char>& program) const;

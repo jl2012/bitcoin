@@ -852,6 +852,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                 {
                     // Hash starts after the code separator
                     pbegincodehash = pc;
+                    return set_error(serror, SCRIPT_ERR_SCRIPT_CODESEPARATOR);
                 }
                 break;
 
@@ -870,7 +871,9 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
 
                     // Drop the signature, since there's no way for a signature to sign itself
                     if (sigversion == SIGVERSION_BASE) {
-                        scriptCode.FindAndDelete(CScript(vchSig));
+                        int found = scriptCode.FindAndDelete(CScript(vchSig));
+                        if (found)
+                            return set_error(serror, SCRIPT_ERR_SCRIPT_FINDANDDELETE);
                     }
 
                     if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, serror)) {
@@ -878,6 +881,9 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         return false;
                     }
                     bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
+
+                    if (!fSuccess)
+                        return set_error(serror, SCRIPT_ERR_CHECKSIGVERIFY);
 
                     popstack(stack);
                     popstack(stack);
@@ -928,7 +934,9 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     {
                         valtype& vchSig = stacktop(-isig-k);
                         if (sigversion == SIGVERSION_BASE) {
-                            scriptCode.FindAndDelete(CScript(vchSig));
+                            int found = scriptCode.FindAndDelete(CScript(vchSig));
+                            if (found)
+                                return set_error(serror, SCRIPT_ERR_SCRIPT_FINDANDDELETE);
                         }
                     }
 
@@ -962,6 +970,9 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         if (nSigsCount > nKeysCount)
                             fSuccess = false;
                     }
+
+                    if (!fSuccess)
+                        return set_error(serror, SCRIPT_ERR_CHECKMULTISIGVERIFY);
 
                     // Clean up stack of actual arguments
                     while (i-- > 1)

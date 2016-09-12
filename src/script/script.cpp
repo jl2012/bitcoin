@@ -201,6 +201,120 @@ unsigned int CScript::GetSigOpCount(const CScript& scriptSig) const
     return subscript.GetSigOpCount(true);
 }
 
+unsigned int CScript::HasCodeSeparator() const
+{
+    unsigned int cs = 0;
+    const_iterator pc = begin();
+    while (pc < end()) {
+        opcodetype opcode;
+        if (!GetOp(pc, opcode))
+            break;
+        if (opcode == OP_CODESEPARATOR) {
+            cs++;
+        }
+    }
+    return cs;
+}
+
+unsigned int CScript::HasCodeSeparator(const CScript& scriptSig) const
+{
+    if (!IsPayToScriptHash())
+        return HasCodeSeparator();
+
+    // This is a pay-to-script-hash scriptPubKey;
+    // get the last item that the scriptSig
+    // pushes onto the stack:
+    const_iterator pc = scriptSig.begin();
+    vector<unsigned char> data;
+    while (pc < scriptSig.end())
+    {
+        opcodetype opcode;
+        if (!scriptSig.GetOp(pc, opcode, data))
+            return 0;
+        if (opcode > OP_16)
+            return 0;
+    }
+
+    /// ... and return its hash opcount:
+    CScript subscript(data.begin(), data.end());
+    return subscript.HasCodeSeparator();
+}
+
+unsigned int CScript::GetSigHashOpCount() const
+{
+    unsigned int n = 0;
+    unsigned int m = 0;
+    const_iterator pc = begin();
+    std::vector<opcodetype> pushOpcodes;
+    while (pc < end())
+    {
+        opcodetype opcode;
+        if (!GetOp(pc, opcode))
+            break; // The script is invalid anyway so we don't care
+        if (opcode == OP_CODESEPARATOR) {
+            // Record the current SigHashOp count and reset the counter
+            m += n;
+            n = 0;
+        }
+        // Within the same CODESEPARATOR block, it never hashes the transaction for more then 3 times.
+        else if (n < 3) {
+            if (opcode == OP_CHECKSIG || opcode == OP_CHECKSIGVERIFY)
+                n++;
+            else if (opcode == OP_CHECKMULTISIG || opcode == OP_CHECKMULTISIGVERIFY) {
+                // We assume a CHECKMULTISIG will hash the transaction for 3 times, unless it is in some canonical form.
+                n += 3;
+                // The number of keys must be k = 1 to 16 denoted by OP_k
+                if (pushOpcodes.size() >= 3 && pushOpcodes.back() >= OP_1 && pushOpcodes.back() <= OP_16) {
+                    unsigned int i = DecodeOP_N(pushOpcodes.back()) + 2;
+                    // All the k + 2 opcodes before the CHECKMULTISIG must be push only
+                    if (pushOpcodes.size() >= i) {
+                        opcodetype nSig = pushOpcodes.at(pushOpcodes.size() - i);
+                        if (nSig == OP_1)
+                            // If the number of signature is denoted by OP_1, we count this as 1 SigHashOp
+                            n -= 2;
+                        else if (nSig == OP_2 && i > 3)
+                            // If the number of signature is denoted by OP_2, and there is at least 2 keys,
+                            // we count this as 2 SigHashOp
+                            n--;
+                    }
+                }
+                // It can't be more than 3 in total
+                if (n > 3)
+                    n = 3;
+            }
+        }
+        if (opcode <= OP_16)
+            pushOpcodes.push_back(opcode);
+        else
+            pushOpcodes.clear();
+    }
+    return (m + n);
+}
+
+unsigned int CScript::GetSigHashOpCount(const CScript& scriptSig) const
+{
+    if (!IsPayToScriptHash())
+        return GetSigHashOpCount();
+
+    // This is a pay-to-script-hash scriptPubKey;
+    // get the last item that the scriptSig
+    // pushes onto the stack:
+    const_iterator pc = scriptSig.begin();
+    vector<unsigned char> data;
+    while (pc < scriptSig.end())
+    {
+        opcodetype opcode;
+        if (!scriptSig.GetOp(pc, opcode, data))
+            return 0;
+        if (opcode > OP_16)
+            return 0;
+    }
+
+    /// ... and return its hash opcount:
+    CScript subscript(data.begin(), data.end());
+    return subscript.GetSigHashOpCount();
+}
+
 bool CScript::IsPayToScriptHash() const
 {
     // Extra-fast test for pay-to-script-hash CScripts:

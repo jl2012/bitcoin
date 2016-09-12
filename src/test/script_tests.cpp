@@ -19,6 +19,7 @@
 #include "script/bitcoinconsensus.h"
 #endif
 
+#include <algorithm>
 #include <fstream>
 #include <stdint.h>
 #include <string>
@@ -1237,7 +1238,6 @@ ScriptFromHex(const char* hex)
     return CScript(data.begin(), data.end());
 }
 
-
 BOOST_AUTO_TEST_CASE(script_FindAndDelete)
 {
     // Exercise the FindAndDelete functionality
@@ -1345,6 +1345,64 @@ BOOST_AUTO_TEST_CASE(script_FindAndDelete)
     expect = ScriptFromHex("03feed");
     BOOST_CHECK_EQUAL(s.FindAndDelete(d), 1);
     BOOST_CHECK(s == expect);
+};
+
+BOOST_AUTO_TEST_CASE(script_GetSigHashOpCount)
+{
+    string pubKey("03b0da749730dc9b4b1f4a14d6902877a92541f5368778853d9c4a0cb7802dcfb2");
+    vector<unsigned char> vchPubKey = ToByteVector(ParseHex(pubKey));
+
+    CScript s;
+    s = CScript();
+    for (int i = 0; i < 10; i++) {
+        BOOST_CHECK_EQUAL(s.GetSigHashOpCount(s), std::min(i,3));
+        s << OP_CHECKSIG;
+    }
+    s = CScript();
+    for (int i = 1; i < 10; i++) {
+        s << OP_CHECKSIGVERIFY;
+        BOOST_CHECK_EQUAL(s.GetSigHashOpCount(s), std::min(i,3));
+    }
+    s = CScript();
+    for (int i = 0; i < 10; i++) {
+        s << OP_CHECKMULTISIG;
+        BOOST_CHECK_EQUAL(s.GetSigHashOpCount(s), 3);
+    }
+    s = CScript();
+    for (int i = 0; i < 10; i++) {
+        s << OP_CHECKMULTISIGVERIFY;
+        BOOST_CHECK_EQUAL(s.GetSigHashOpCount(s), 3);
+    }
+    s = CScript();
+    for (int i = 1; i < 10; i++) {
+        s << OP_CHECKSIG << OP_CODESEPARATOR;
+        BOOST_CHECK_EQUAL(s.GetSigHashOpCount(s), i);
+    }
+    s = CScript();
+    for (int i = 1; i < 10; i++) {
+        s << OP_CHECKMULTISIG << OP_CODESEPARATOR;
+        BOOST_CHECK_EQUAL(s.GetSigHashOpCount(s), 3*i);
+    }
+    s = CScript();
+    for (int i = 1; i < 10; i++) {
+        s << OP_2 << OP_1 << vchPubKey << OP_1 << vchPubKey << OP_1 << OP_5 << OP_CHECKMULTISIG;
+        BOOST_CHECK_EQUAL(s.GetSigHashOpCount(s), std::min(i*2, 3));
+    }
+    s = CScript();
+    for (int i = 1; i < 10; i++) {
+        s << OP_2 << OP_1 << vchPubKey << OP_1 << vchPubKey << OP_1 << OP_5 << OP_CHECKMULTISIG << OP_CODESEPARATOR;
+        BOOST_CHECK_EQUAL(s.GetSigHashOpCount(s), i*2);
+    }
+    s = CScript();
+    for (int i = 1; i < 10; i++) {
+        s << OP_1 << OP_1 << OP_1 << OP_1 << OP_1 << OP_5 << OP_CHECKMULTISIG;
+        BOOST_CHECK_EQUAL(s.GetSigHashOpCount(s), 3);
+    }
+    s = CScript();
+    for (int i = 1; i < 10; i++) {
+        s << OP_1 << OP_1 << OP_1 << OP_1 << OP_1 << OP_5 << OP_CHECKMULTISIG << OP_CODESEPARATOR;
+        BOOST_CHECK_EQUAL(s.GetSigHashOpCount(s), i*3);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()
