@@ -2400,13 +2400,13 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     unsigned int flags = fStrictPayToScriptHash ? SCRIPT_VERIFY_P2SH : SCRIPT_VERIFY_NONE;
 
     if (flags & SCRIPT_VERIFY_P2SH) {
-        flags |= SCRIPT_VERIFY_CLEANSTACK;
+        //flags |= SCRIPT_VERIFY_CLEANSTACK;
         flags |= SCRIPT_VERIFY_WITNESS;
     }
     flags |= SCRIPT_VERIFY_STRICTENC;
-    flags |= SCRIPT_VERIFY_NULLDUMMY;
-    flags |= SCRIPT_VERIFY_SIGPUSHONLY;
-    flags |= SCRIPT_VERIFY_MINIMALDATA;
+    //flags |= SCRIPT_VERIFY_NULLDUMMY;
+    //flags |= SCRIPT_VERIFY_SIGPUSHONLY;
+    //flags |= SCRIPT_VERIFY_MINIMALDATA;
 
     // Start enforcing the DERSIG (BIP66) rule
     if (pindex->nHeight >= chainparams.GetConsensus().BIP66Height) {
@@ -2508,15 +2508,15 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             control.Add(vChecks);
         }
 
-        unsigned int hashSize = GetTransactionSigHashSize(tx);
-        unsigned int txSize = GetTransactionWeight(tx) / 4;
-        unsigned int nTxInputs = tx.vin.size();
-        unsigned int nTxOutputs = tx.vout.size();
-        unsigned int nSigHashOps = 0;
-        unsigned int nAccuSigOps = 0;
-        unsigned int nCodeSeparator = 0;
-        GetBaseSigHashOpCount(tx, view, flags, nSigHashOps, nAccuSigOps, nCodeSeparator);
-        LogPrintf("T %s %u %u %u %u %u %u %u\n", tx.GetHash().ToString(), txSize, hashSize, nTxInputs, nTxOutputs, nAccuSigOps, nSigHashOps, nCodeSeparator);
+//        unsigned int hashSize = GetTransactionSigHashSize(tx);
+//        unsigned int txSize = GetTransactionWeight(tx) / 4;
+//        unsigned int nTxInputs = tx.vin.size();
+//        unsigned int nTxOutputs = tx.vout.size();
+//        unsigned int nSigHashOps = 0;
+//        unsigned int nAccuSigOps = 0;
+//        unsigned int nCodeSeparator = 0;
+//        GetBaseSigHashOpCount(tx, view, flags, nSigHashOps, nAccuSigOps, nCodeSeparator);
+//        LogPrintf("T %s %u %u %u %u %u %u %u\n", tx.GetHash().ToString(), txSize, hashSize, nTxInputs, nTxOutputs, nAccuSigOps, nSigHashOps, nCodeSeparator);
 
         CTxUndo undoDummy;
         if (i > 0) {
