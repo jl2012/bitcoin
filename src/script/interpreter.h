@@ -102,6 +102,10 @@ enum
     // Signature(s) must be empty vector if an CHECK(MULTI)SIG operation failed
     //
     SCRIPT_VERIFY_NULLFAIL = (1U << 14),
+
+    // Making OP_CODESEPARATOR and FindAndDelete non-standard in non-segwit scripts
+    //
+    SCRIPT_VERIFY_CONST_SCRIPTCODE = (1U << 15),
 };
 
 bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);
