@@ -38,6 +38,7 @@ enum
     // Passing a non-strict-DER signature or one with undefined hashtype to a checksig operation causes script failure.
     // Evaluating a pubkey that is not (0x04 + 64 bytes) or (0x02 or 0x03 + 32 bytes) by checksig causes script failure.
     // (softfork safe, but not used or intended as a consensus rule).
+    // In segwit scripts, only compressed keys (33 bytes) are allowed.
     SCRIPT_VERIFY_STRICTENC = (1U << 1),
 
     // Passing a non-strict-DER signature to a checksig operation causes script failure (softfork safe, BIP62 rule 1)

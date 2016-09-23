@@ -199,9 +199,13 @@ bool CheckSignatureEncoding(const vector<unsigned char> &vchSig, unsigned int fl
     return true;
 }
 
-bool static CheckPubKeyEncoding(const valtype &vchSig, unsigned int flags, ScriptError* serror) {
-    if ((flags & SCRIPT_VERIFY_STRICTENC) != 0 && !IsCompressedOrUncompressedPubKey(vchSig)) {
+bool static CheckPubKeyEncoding(const valtype &vchPubKey, unsigned int flags, const SigVersion &sigversion, ScriptError* serror) {
+    if ((flags & SCRIPT_VERIFY_STRICTENC) != 0 && !IsCompressedOrUncompressedPubKey(vchPubKey)) {
         return set_error(serror, SCRIPT_ERR_PUBKEYTYPE);
+    }
+    // Only compressed keys are accepted in segwit
+    if ((flags & SCRIPT_VERIFY_STRICTENC) != 0 && sigversion == SIGVERSION_WITNESS_V0 && vchPubKey.size() != 33) {
+        return set_error(serror, SCRIPT_ERR_WITNESS_PUBKEYTYPE);
     }
     return true;
 }
@@ -873,7 +877,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         scriptCode.FindAndDelete(CScript(vchSig));
                     }
 
-                    if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, serror)) {
+                    if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
                         //serror is set
                         return false;
                     }
@@ -941,7 +945,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         // Note how this makes the exact order of pubkey/signature evaluation
                         // distinguishable by CHECKMULTISIG NOT if the STRICTENC flag is set.
                         // See the script_(in)valid tests for details.
-                        if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, serror)) {
+                        if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
                             // serror is set
                             return false;
                         }
