@@ -30,6 +30,12 @@ static const unsigned int MAX_STANDARD_TX_SIGOPS_COST = MAX_BLOCK_SIGOPS_COST/5;
 static const unsigned int DEFAULT_MAX_MEMPOOL_SIZE = 300;
 /** Default for -bytespersigop */
 static const unsigned int DEFAULT_BYTES_PER_SIGOP = 20;
+/** The maximum number of witness stack items in a standard P2WSH script */
+static const unsigned int MAX_STANDARD_P2WSH_STACK_ITEMS = 100;
+/** The maximum size of each witness stack item in a standard P2WSH script */
+static const unsigned int MAX_STANDARD_P2WSH_STACK_ITEM_SIZE = 80;
+/** The maximum size of a standard witnessScript */
+static const unsigned int MAX_STANDARD_P2WSH_SCRIPT_SIZE = 3600;
 /**
  * Standard script verification flags that standard transactions will comply
  * with. However scripts violating these flags may still be present in valid
@@ -67,6 +73,27 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnes
      * @return True if all inputs (scriptSigs) use only standard transaction forms
      */
 bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs);
+
+/**
+ * This is to analyse witness-bearing transactions to identify maliciously malleated witness, especially with
+ * bloated witness that may trigger fee/sigop policy rejection.
+ * TX_MAYBE_OK is returned if the transaction superficially looks ok
+ * TX_BAD_WITNESS is returned if the transaction is consensus-invalid only due to incorrect witness
+ *   -- DoS ban but corruption possible
+ * TX_BAD_P2SH is returned if the transaction is consensus-invalid not due to bad P2SH scriptSig
+ *   -- DoS ban and not corruption possible
+ * TX_NONSTD_BIG_P2WSH is returned if the transaction is over standard P2WSH resources limit:
+ * 3600bytes witnessScript size, 80bytes per witness stack element, 100 witness stack elements
+ *   -- Rejected but corruption possible
+ */
+enum BadTransaction
+{
+    TX_MAYBE_OK = 0,
+    TX_BAD_WITNESS = 1,
+    TX_BAD_P2SH = 2,
+    TX_NONSTD_BIG_P2WSH = 3,
+};
+BadTransaction IsBadWitness(const CTransaction& tx, const CCoinsViewCache& mapInputs);
 
 extern unsigned int nBytesPerSigOp;
 

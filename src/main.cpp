@@ -1260,6 +1260,18 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         if (fRequireStandard && !AreInputsStandard(tx, view))
             return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-nonstandard-inputs");
 
+        // Check for bad witness
+        bool fNonStandardWitness = false;
+        if (witnessEnabled && !tx.wit.IsNull()) {
+            BadTransaction badtx = IsBadWitness(tx, view);
+            if (badtx == TX_BAD_WITNESS)
+                return state.DoS(100, false, REJECT_INVALID, "bad-witness", true);
+            if (badtx == TX_BAD_P2SH)
+                return state.DoS(100, false, REJECT_INVALID, "bad-P2SH-scriptSig");
+            if (fRequireStandard && badtx == TX_NONSTD_BIG_P2WSH)
+                fNonStandardWitness = true; // Reject after script execution
+        }
+
         int64_t nSigOpsCost = GetTransactionSigOpCost(tx, view, STANDARD_SCRIPT_VERIFY_FLAGS);
 
         CAmount nValueOut = tx.GetValueOut();
@@ -1519,6 +1531,10 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             return error("%s: BUG! PLEASE REPORT THIS! ConnectInputs failed against MANDATORY but not STANDARD flags %s, %s",
                 __func__, hash.ToString(), FormatStateMessage(state));
         }
+
+        // Reject non-standard witness transaction
+        if (fNonStandardWitness)
+            return state.DoS(0, false, REJECT_NONSTANDARD, "bad-witness-nonstandard", true);
 
         // Remove conflicting transactions from the mempool
         BOOST_FOREACH(const CTxMemPool::txiter it, allConflicting)

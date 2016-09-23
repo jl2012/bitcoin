@@ -951,7 +951,7 @@ class SegWitTest(BitcoinTestFramework):
         # Verify that unnecessary witnesses are rejected.
         self.test_node.announce_tx_and_wait_for_getdata(tx)
         assert_equal(len(self.nodes[0].getrawmempool()), 0)
-        self.test_node.test_transaction_acceptance(tx, with_witness=True, accepted=False)
+        self.test_node.test_transaction_acceptance(tx, with_witness=True, accepted=False, reason=b'bad-witness')
 
         # Verify that removing the witness succeeds.
         self.test_node.announce_tx_and_wait_for_getdata(tx)
@@ -1536,13 +1536,23 @@ class SegWitTest(BitcoinTestFramework):
         spend_tx.rehash()
         self.test_node.test_transaction_acceptance(spend_tx, with_witness=False, accepted=False)
 
-        # Now put the witness script in the witness, should succeed after
-        # segwit activates.
-        spend_tx.vin[0].scriptSig = scriptSig
-        spend_tx.rehash()
+        # Now put the witness script in the witness, with empty scriptSig.
+        # Should be caught as TX_BAD_P2SH after segwit activates.
         spend_tx.wit.vtxinwit.append(CTxInWitness())
         spend_tx.wit.vtxinwit[0].scriptWitness.stack = [ b'a', witness_program ]
+        spend_tx.vin[0].scriptSig = CScript();
+        spend_tx.rehash()
+        badtx = b'bad-P2SH-scriptSig' if segwit_activated else b'no-witness-yet'
+        self.test_node.test_transaction_acceptance(spend_tx, with_witness=True, accepted=False, reason=badtx)
 
+        # With invalid scriptSig. Should be caught as TX_BAD_P2SH after segwit activates.
+        spend_tx.vin[0].scriptSig = CScript([OP_RETURN]);
+        spend_tx.rehash()
+        self.test_node.test_transaction_acceptance(spend_tx, with_witness=True, accepted=False, reason=badtx)
+
+        # Finally, with correct scriptSig. Should succeed after segwit activates.
+        spend_tx.vin[0].scriptSig = CScript(scriptSig);
+        spend_tx.rehash()
         # Verify mempool acceptance
         self.test_node.test_transaction_acceptance(spend_tx, with_witness=True, accepted=segwit_activated)
         block = self.build_next_block()
@@ -1711,6 +1721,200 @@ class SegWitTest(BitcoinTestFramework):
         assert(block_version & (1 << VB_WITNESS_BIT) != 0)
         self.nodes[0].setmocktime(0) # undo mocktime
 
+    def test_bad_witness(self):
+        print("\tTesting detection of bad witness")
+        null = hex_str_to_bytes("")
+        pad = chr(1).encode('latin-1')
+        coinbase_blocks = self.nodes[0].generate(101)
+        coinbase_txid = int("0x" + self.nodes[0].getblock(coinbase_blocks[0])['tx'][0], 0)
+        self.key = CECKey()
+        self.key.set_secretbytes(b"9")
+        self.key.set_compressed(1)
+        self.pubkey = CPubKey(self.key.get_pubkey())
+        scripts = {}
+        p2wpkh_script = CScript([OP_0, hash160(self.pubkey)])
+        p2wpkh_p2sh_script = CScript([OP_HASH160, hash160(p2wpkh_script), OP_EQUAL])
+        scriptCode = CScript([OP_DUP, OP_HASH160, hash160(self.pubkey), OP_EQUALVERIFY, OP_CHECKSIG])
+        witnessScript = CScript([OP_3] + [self.pubkey] * 4 + [OP_4, OP_CHECKMULTISIG])
+        p2wsh_script = CScript([OP_0, sha256(witnessScript)])
+        p2wsh_p2sh_script = CScript([OP_HASH160, hash160(p2wsh_script), OP_EQUAL])
+        drop100_script = CScript([OP_DROP]*100)
+        p2wsh_drop100_script = CScript([OP_0, sha256(drop100_script)])
+        drop99_script = CScript([OP_DROP]*99)
+        p2wsh_drop99_script = CScript([OP_0, sha256(drop99_script)])
+        big3600_script = CScript([pad * 59] * 59 + [OP_DROP] * 60)
+        p2wsh_big3600_script = CScript([OP_0, sha256(big3600_script)])
+        big3601_script = CScript([pad * 59] * 59 + [OP_DROP] * 61)
+        p2wsh_big3601_script = CScript([OP_0, sha256(big3601_script)])
+        big10000_script = CScript([pad * 496] * 20 + [OP_DROP] * 20)
+        p2wsh_big10000_script = CScript([OP_0, sha256(big10000_script)])
+        big10001_script = CScript([pad * 496] * 20 + [OP_DROP] * 21)
+        p2wsh_big10001_script = CScript([OP_0, sha256(big10001_script)])
+        multisig201_script = CScript([OP_CHECKMULTISIGVERIFY] * 201)
+        p2wsh_multisig201_script = CScript([OP_0, sha256(multisig201_script)])
+
+        tx = CTransaction()
+        tx.vin.append(CTxIn(COutPoint(coinbase_txid)))
+        tx.vout.append(CTxOut(10000000,p2wpkh_script))
+        tx.vout.append(CTxOut(10000000,p2wsh_script))
+        tx.vout.append(CTxOut(10000000,p2wpkh_p2sh_script))
+        tx.vout.append(CTxOut(10000000,p2wsh_p2sh_script))
+        tx.vout.append(CTxOut(10000000,p2wsh_drop100_script))
+        tx.vout.append(CTxOut(10000000,p2wsh_drop99_script))
+        tx.vout.append(CTxOut(10000000,p2wsh_big3600_script))
+        tx.vout.append(CTxOut(10000000,p2wsh_big3601_script))
+        tx.vout.append(CTxOut(10000000,p2wsh_big10000_script))
+        tx.vout.append(CTxOut(10000000,p2wsh_big10001_script))
+        tx.vout.append(CTxOut(10000000,p2wsh_multisig201_script))
+        tx.rehash()
+        signresult = self.nodes[0].signrawtransaction(bytes_to_hex_str(tx.serialize()))
+        self.bad_witness_test_txid = int("0x" + self.nodes[0].sendrawtransaction(signresult['hex'], True), 0)
+        self.nodes[0].generate(1)
+
+        # Testing bare P2WPKH. Not paying any fee so we could test low fee rejection
+        [p2wpkh_tx, p2wpkh_sig] = self.create_bad_witness_test_tx(0,10000000,scriptCode)
+        # Transactions with bloated witness should be caught before fee calculation
+        p2wpkh_tx.wit.vtxinwit[0].scriptWitness.stack = [p2wpkh_sig + pad * (74 - len(p2wpkh_sig)), self.pubkey]
+        self.test_node.test_transaction_acceptance(p2wpkh_tx, with_witness=True, accepted=False, reason=b'bad-witness')
+        p2wpkh_tx.wit.vtxinwit[0].scriptWitness.stack = [p2wpkh_sig, self.pubkey + pad]
+        self.test_node.test_transaction_acceptance(p2wpkh_tx, with_witness=True, accepted=False, reason=b'bad-witness')
+        p2wpkh_tx.wit.vtxinwit[0].scriptWitness.stack = [p2wpkh_sig, self.pubkey]
+        # The transaction with correct witness is not accepted due to insuficient fee
+        self.test_node.test_transaction_acceptance(p2wpkh_tx, with_witness=True, accepted=False, reason=b'insufficient priority')
+        # Pay fee and it will be accepted
+        p2wpkh_tx.vout[0] = CTxOut(9000000,p2wpkh_script)
+        p2wpkh_tx.rehash()
+        self.test_node.test_transaction_acceptance(p2wpkh_tx, with_witness=True, accepted=True)
+
+        # Testing P2SH-P2WPKH
+        [p2wpkh_p2sh_tx, p2wpkh_p2sh_sig] = self.create_bad_witness_test_tx(2,8000000,scriptCode,CScript([p2wpkh_script]))
+        p2wpkh_p2sh_tx.wit.vtxinwit[0].scriptWitness.stack = [p2wpkh_p2sh_sig + pad * (74 - len(p2wpkh_p2sh_sig)), self.pubkey]
+        self.test_node.test_transaction_acceptance(p2wpkh_p2sh_tx, with_witness=True, accepted=False, reason=b'bad-witness')
+        p2wpkh_p2sh_tx.wit.vtxinwit[0].scriptWitness.stack = [p2wpkh_p2sh_sig, self.pubkey + chr(0).encode('latin-1')]
+        self.test_node.test_transaction_acceptance(p2wpkh_p2sh_tx, with_witness=True, accepted=False, reason=b'bad-witness')
+        p2wpkh_p2sh_tx.wit.vtxinwit[0].scriptWitness.stack = [p2wpkh_p2sh_sig, self.pubkey]
+        self.test_node.test_transaction_acceptance(p2wpkh_p2sh_tx, with_witness=True, accepted=True)
+
+        # Testing P2WSH 3-of-4 multisig
+        [p2wsh_tx, p2wsh_sig] = self.create_bad_witness_test_tx(1,8000000,witnessScript)
+        # bloated witnessScript
+        p2wsh_tx.wit.vtxinwit[0].scriptWitness.stack = [null] + [p2wsh_sig] * 3 + [witnessScript + pad]
+        self.test_node.test_transaction_acceptance(p2wsh_tx, with_witness=True, accepted=False, reason=b'bad-witness')
+        # bloated signatures
+        p2wsh_tx.wit.vtxinwit[0].scriptWitness.stack = [null] + [p2wsh_sig + pad * (74 - len(p2wsh_sig))] + [p2wsh_sig] * 2 + [witnessScript]
+        self.test_node.test_transaction_acceptance(p2wsh_tx, with_witness=True, accepted=False, reason=b'bad-witness')
+        p2wsh_tx.wit.vtxinwit[0].scriptWitness.stack = [null] + [p2wsh_sig] + [p2wsh_sig + pad * (74 - len(p2wsh_sig))] + [p2wsh_sig] + [witnessScript]
+        self.test_node.test_transaction_acceptance(p2wsh_tx, with_witness=True, accepted=False, reason=b'bad-witness')
+        p2wsh_tx.wit.vtxinwit[0].scriptWitness.stack = [null] + [p2wsh_sig] * 2 + [p2wsh_sig + pad * (74 - len(p2wsh_sig))] + [witnessScript]
+        self.test_node.test_transaction_acceptance(p2wsh_tx, with_witness=True, accepted=False, reason=b'bad-witness')
+        # bloated dummy
+        p2wsh_tx.wit.vtxinwit[0].scriptWitness.stack = [pad] + [p2wsh_sig] * 3 + [witnessScript]
+        self.test_node.test_transaction_acceptance(p2wsh_tx, with_witness=True, accepted=False, reason=b'bad-witness')
+        # Correct witness
+        p2wsh_tx.wit.vtxinwit[0].scriptWitness.stack = [null] + [p2wsh_sig] * 3 + [witnessScript]
+        self.test_node.test_transaction_acceptance(p2wsh_tx, with_witness=True, accepted=True)
+
+        # Testing P2SH-P2WSH 3-of-4 multisig
+        [p2wsh_p2sh_tx, p2wsh_p2sh_sig] = self.create_bad_witness_test_tx(3,7000000,witnessScript,CScript([p2wsh_script]))
+        p2wsh_p2sh_tx.wit.vtxinwit[0].scriptWitness.stack = [null] + [p2wsh_p2sh_sig] * 3 + [witnessScript + pad]
+        self.test_node.test_transaction_acceptance(p2wsh_p2sh_tx, with_witness=True, accepted=False, reason=b'bad-witness')
+        p2wsh_p2sh_tx.wit.vtxinwit[0].scriptWitness.stack = [null] + [p2wsh_p2sh_sig + pad * (74 - len(p2wsh_p2sh_sig))] + [p2wsh_p2sh_sig] * 2 + [witnessScript]
+        self.test_node.test_transaction_acceptance(p2wsh_p2sh_tx, with_witness=True, accepted=False, reason=b'bad-witness')
+        p2wsh_p2sh_tx.wit.vtxinwit[0].scriptWitness.stack = [null] + [p2wsh_p2sh_sig] + [p2wsh_p2sh_sig + pad * (74 - len(p2wsh_p2sh_sig))] + [p2wsh_p2sh_sig] + [witnessScript]
+        self.test_node.test_transaction_acceptance(p2wsh_p2sh_tx, with_witness=True, accepted=False, reason=b'bad-witness')
+        p2wsh_p2sh_tx.wit.vtxinwit[0].scriptWitness.stack = [null] + [p2wsh_p2sh_sig] * 2 + [p2wsh_p2sh_sig + pad * (74 - len(p2wsh_p2sh_sig))] + [witnessScript]
+        self.test_node.test_transaction_acceptance(p2wsh_p2sh_tx, with_witness=True, accepted=False, reason=b'bad-witness')
+        p2wsh_p2sh_tx.wit.vtxinwit[0].scriptWitness.stack = [pad] + [p2wsh_p2sh_sig] * 3 + [witnessScript]
+        self.test_node.test_transaction_acceptance(p2wsh_p2sh_tx, with_witness=True, accepted=False, reason=b'bad-witness')
+        p2wsh_p2sh_tx.wit.vtxinwit[0].scriptWitness.stack = [null] + [p2wsh_p2sh_sig] * 3 + [witnessScript]
+        self.test_node.test_transaction_acceptance(p2wsh_p2sh_tx, with_witness=True, accepted=True)
+
+        # Mine all transactions
+        self.nodes[0].generate(1)
+        sync_blocks(self.nodes)
+        assert_equal(len(self.nodes[0].getrawmempool()), 0)
+        assert_equal(len(self.nodes[1].getrawmempool()), 0)
+
+        # Testing P2WSH consensus and standard limits
+        [p2wsh_drop100_tx, sig] = self.create_bad_witness_test_tx(4,8000000,drop100_script)
+        [p2wsh_drop99_tx, sig] = self.create_bad_witness_test_tx(5,8000000,drop99_script)
+        [p2wsh_big3600_tx, sig] = self.create_bad_witness_test_tx(6,8000000,big3600_script)
+        [p2wsh_big3601_tx, sig] = self.create_bad_witness_test_tx(7,8000000,big3601_script)
+        [p2wsh_big10000_tx, sig] = self.create_bad_witness_test_tx(8,8000000,big10000_script)
+        [p2wsh_big10001_tx, sig] = self.create_bad_witness_test_tx(9,8000000,big10001_script)
+        [p2wsh_multisig201_tx, sig] = self.create_bad_witness_test_tx(10,8000000,multisig201_script)
+
+        # Witness stack size, excluding witnessScript, over 100 is non-standard
+        p2wsh_drop100_tx.wit.vtxinwit[0].scriptWitness.stack = [pad] * 101 + [drop100_script]
+        self.reject_tx(p2wsh_drop100_tx, "64: bad-witness-nonstandard")
+        # Non-standard nodes should accept
+        self.test_node.test_transaction_acceptance(p2wsh_drop100_tx, with_witness=True, accepted=True)
+
+        # Stack element size over 520 bytes is consensus invalid
+        p2wsh_drop99_tx.wit.vtxinwit[0].scriptWitness.stack = [pad * 521] * 100 + [drop99_script]
+        self.reject_tx(p2wsh_drop99_tx, "16: bad-witness")
+        # Stack element size over 80 bytes is non-standard
+        p2wsh_drop99_tx.wit.vtxinwit[0].scriptWitness.stack = [pad * 520] * 100 + [drop99_script]
+        self.reject_tx(p2wsh_drop99_tx, "64: bad-witness-nonstandard")
+        p2wsh_drop99_tx.wit.vtxinwit[0].scriptWitness.stack = [pad * 81] * 100 + [drop99_script]
+        self.reject_tx(p2wsh_drop99_tx, "64: bad-witness-nonstandard")
+        # Non-standard nodes should accept
+        self.test_node.test_transaction_acceptance(p2wsh_drop99_tx, with_witness=True, accepted=True)
+        # Standard nodes should accept is element size is not over 80 bytes
+        p2wsh_drop99_tx.wit.vtxinwit[0].scriptWitness.stack = [pad * 80] * 100 + [drop99_script]
+        self.reject_tx(p2wsh_drop99_tx)
+
+        # witnessScript size at 3600 bytes is standard
+        p2wsh_big3600_tx.wit.vtxinwit[0].scriptWitness.stack = [pad, pad, big3600_script]
+        self.reject_tx(p2wsh_big3600_tx)
+
+        # witnessScript size at 3601-10000 bytes is non-standard
+        p2wsh_big3601_tx.wit.vtxinwit[0].scriptWitness.stack = [pad, pad, pad, big3601_script]
+        self.reject_tx(p2wsh_big3601_tx, "64: bad-witness-nonstandard")
+        p2wsh_big10000_tx.wit.vtxinwit[0].scriptWitness.stack = [pad, big10000_script]
+        self.reject_tx(p2wsh_big10000_tx, "64: bad-witness-nonstandard")
+        # Non-standard nodes should accept
+        self.test_node.test_transaction_acceptance(p2wsh_big3601_tx, with_witness=True, accepted=True)
+        self.test_node.test_transaction_acceptance(p2wsh_big10000_tx, with_witness=True, accepted=True)
+
+        # witnessScript size over 10000 bytes is consensus invalid
+        p2wsh_big10001_tx.wit.vtxinwit[0].scriptWitness.stack = [pad, pad, big10001_script]
+        self.reject_tx(p2wsh_big10001_tx, "16: bad-witness")
+
+        # witness stack over 604 is invalid by consensus implicitly
+        p2wsh_multisig201_tx.wit.vtxinwit[0].scriptWitness.stack = [pad, pad] + [null] * 603 + [multisig201_script]
+        self.reject_tx(p2wsh_multisig201_tx, "16: bad-witness")
+        p2wsh_multisig201_tx.wit.vtxinwit[0].scriptWitness.stack = [pad] + [null] * 603 + [multisig201_script]
+        self.test_node.test_transaction_acceptance(p2wsh_multisig201_tx, with_witness=True, accepted=True)
+
+        self.nodes[0].generate(1)  # Mine and clean up the mempool of non-standard node
+        sync_blocks(self.nodes)    # Sync blocks
+        sync_mempools(self.nodes)  # and mempool
+        self.nodes[0].generate(1)  # Mine another block
+        sync_blocks(self.nodes)    # All valid but non-standard transactions should be accepted by standard node
+        assert_equal(len(self.nodes[0].getrawmempool()), 0)
+        assert_equal(len(self.nodes[1].getrawmempool()), 0)
+
+    def reject_tx(self, tx, msg=""):
+        if (msg):
+            try:
+                self.nodes[1].sendrawtransaction(bytes_to_hex_str(tx.serialize_with_witness()), True)
+            except JSONRPCException as exp:
+                assert_equal(exp.error["message"], msg)
+        else:
+            self.nodes[1].sendrawtransaction(bytes_to_hex_str(tx.serialize_with_witness()), True)
+
+    def create_bad_witness_test_tx(self,nIn,output_amount,scriptCode,scriptSig=CScript()):
+        tx = CTransaction()
+        tx.vin.append(CTxIn(COutPoint(self.bad_witness_test_txid,nIn),scriptSig))
+        tx.vout.append(CTxOut(output_amount,CScript([OP_0, hash160(hex_str_to_bytes(""))])))
+        tx.wit.vtxinwit.append(CTxInWitness())
+        tx.rehash()
+        # Signing with SIGHASH_NONE so we could change the output value freely
+        sighash = SegwitVersion1SignatureHash(scriptCode, tx, 0, SIGHASH_NONE, 10000000)
+        sig = self.key.sign(sighash) + chr(SIGHASH_NONE).encode('latin-1')
+        return [tx, sig]
+
     def run_test(self):
         # Setup the p2p connections and start up the network thread.
         self.test_node = TestNode() # sets NODE_WITNESS|NODE_NETWORK
@@ -1783,6 +1987,7 @@ class SegWitTest(BitcoinTestFramework):
         self.test_segwit_versions()
         self.test_premature_coinbase_witness_spend()
         self.test_signature_version_1()
+        self.test_bad_witness()
         sync_blocks(self.nodes)
         if self.test_upgrade:
             self.test_upgrade_after_activation(self.nodes[2], 2)

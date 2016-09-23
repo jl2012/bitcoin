@@ -95,7 +95,7 @@ class NULLDUMMYTest(ComparisonTestFramework):
         test5tx = self.create_transaction(self.nodes[0], txid3, self.wit_address, 48)
         test6txs.append(CTransaction(test5tx))
         test5tx.wit.vtxinwit[0].scriptWitness.stack[0] = b'\x01'
-        self.tx_submit(self.nodes[0], test5tx, NULLDUMMY_ERROR)
+        self.tx_submit(self.nodes[0], test5tx, '16: bad-witness')
         self.block_submit(self.nodes[0], [test5tx], True)
 
         print ("Test 6: NULLDUMMY compliant base/witness transactions should be accepted to mempool and in block after activation [432]")

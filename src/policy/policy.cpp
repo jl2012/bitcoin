@@ -154,6 +154,127 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
     return true;
 }
 
+BadTransaction IsBadWitness(const CTransaction& tx, const CCoinsViewCache& mapInputs)
+{
+    BadTransaction ret = TX_MAYBE_OK;
+    if (tx.IsCoinBase())
+        return ret; // Coinbases are skipped
+
+    for (unsigned int i = 0; i < tx.vin.size(); i++)
+    {
+        // We don't care if witness for this input is empty, since it must not be bloated. Also, before segwit
+        // activation, it is valid to spend segwit outputs without witness and we are not sure what's happening.
+        if (!tx.wit.vtxinwit[i].IsNull()) {
+            const CTxOut &prev = mapInputs.GetOutputFor(tx.vin[i]);
+
+            std::vector <std::vector<unsigned char>> vSolutions;
+            txnouttype whichType;
+            // get the scriptPubKey corresponding to this input:
+            CScript prevScript = prev.scriptPubKey;
+            Solver(prevScript, whichType, vSolutions);
+
+            if (whichType == TX_SCRIPTHASH) {
+                std::vector <std::vector<unsigned char>> stack;
+                // If the scriptPubKey is P2SH, we try to extract the redeemScript casually by converting the scriptSig
+                // into a stack. We do not check IsPushOnly nor compare the hash as these will be done later anyway.
+                // If the check fails at this stage, we know that this txid must be a bad one.
+                if (!EvalScript(stack, tx.vin[i].scriptSig, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), SIGVERSION_BASE))
+                    return TX_BAD_P2SH;
+                if (stack.empty())
+                    return TX_BAD_P2SH;
+                prevScript = CScript(stack.back().begin(), stack.back().end());
+            }
+
+            int witnessversion = 0;
+            std::vector<unsigned char> witnessprogram;
+
+            // Non-witness program must not be associated with any witness
+            if (!prevScript.IsWitnessProgram(witnessversion, witnessprogram))
+                return TX_BAD_WITNESS;
+
+            // Witness for P2WPKH must have 2 stack items. Pubkey must match the witness program.
+            // Signature must be <= 73 bytes (BIP66). Since signature size is variable, it is not impossible to bloat a
+            // 70-byte signature to 73-byte and trigger fee rejection for marginal cases but the impact is negligible.
+            if (witnessversion == 0 && witnessprogram.size() == 20) {
+                if (tx.wit.vtxinwit[i].scriptWitness.stack.size() != 2)
+                    return TX_BAD_WITNESS;
+                std::vector<unsigned char> hashPubKey(20);
+                std::vector<unsigned char> pubKey = tx.wit.vtxinwit[i].scriptWitness.stack[1];
+                if (tx.wit.vtxinwit[i].scriptWitness.stack[0].size() > 73)
+                    return TX_BAD_WITNESS;
+                CHash160().Write(begin_ptr(pubKey), pubKey.size()).Finalize(begin_ptr(hashPubKey));
+                if (hashPubKey != witnessprogram)
+                    return TX_BAD_WITNESS;
+            }
+
+            // P2WSH requires at least 1 witness stack item but we already know the witness is not empty.
+            // Make sure the witnessScript size is <= 10000 bytes (MAX_SCRIPT_SIZE) and matches witness program.
+            // Max standard witnessScript size is 3600 bytes
+            if (witnessversion == 0 && witnessprogram.size() == 32) {
+                CScript witnessScript = CScript(tx.wit.vtxinwit[i].scriptWitness.stack.back().begin(), tx.wit.vtxinwit[i].scriptWitness.stack.back().end());
+                uint256 hashWitnessScript;
+                if (witnessScript.size() > MAX_SCRIPT_SIZE)
+                    return TX_BAD_WITNESS;
+                if (witnessScript.size() > MAX_STANDARD_P2WSH_SCRIPT_SIZE)
+                    ret = TX_NONSTD_BIG_P2WSH;
+                CSHA256().Write(begin_ptr(witnessScript), witnessScript.size()).Finalize(hashWitnessScript.begin());
+                if (memcmp(hashWitnessScript.begin(), &witnessprogram[0], 32))
+                    return TX_BAD_WITNESS;
+
+                /*
+                 * Count the witness stack size without the witnessScript.
+                 *
+                 * Max standard witness stack size is 100.
+                 * Due to the implicit CLEANSTACK rule and nOpCount limit of 201, the maximum consensus valid
+                 * witness stack size is 604, with 201 OP_CHECKMULTISIGVERIFY in witnessScript.
+                 * Each 0-of-0 OP_CHECKMULTISIGVERIFY is considered as 1 nOpCount, and will remove 3 items from stack:
+                 * dummy item, nSig, and nKey. By putting a true item at the beginning, the script is valid by
+                 * consensus.
+                 * Anything bigger than 604 is guaranteed to leave more than one stack item after execution, and is
+                 * invalid with the implicit CLEANSTACK rule for segwit scripts.
+                 *
+                 * Max consensus size limit for each element is 520 bytes
+                 * Max standard size limit for each element is 80 bytes
+                 */
+                size_t sizeWitnessStack = tx.wit.vtxinwit[i].scriptWitness.stack.size() - 1;
+                if (sizeWitnessStack > 604)
+                    return TX_BAD_WITNESS;
+                if (sizeWitnessStack > MAX_STANDARD_P2WSH_STACK_ITEMS)
+                    ret = TX_NONSTD_BIG_P2WSH;
+                for (unsigned int j = 0; j < sizeWitnessStack; j++) {
+                    if (tx.wit.vtxinwit[i].scriptWitness.stack[j].size() > MAX_SCRIPT_ELEMENT_SIZE)
+                        return TX_BAD_WITNESS;
+                    if (tx.wit.vtxinwit[i].scriptWitness.stack[j].size() > MAX_STANDARD_P2WSH_STACK_ITEM_SIZE)
+                        ret = TX_NONSTD_BIG_P2WSH;
+                }
+
+                // Canonical P2WSH multisig must use null dummy value (BIP147). Signature must be <= 73 bytes.
+                std::vector <std::vector<unsigned char>> vWitnessScriptSolutions;
+                txnouttype whichWitnessScriptType;
+                if (Solver(witnessScript, whichWitnessScriptType, vWitnessScriptSolutions)) {
+                    if (whichWitnessScriptType == TX_MULTISIG) {
+                        unsigned char m = vWitnessScriptSolutions.front()[0];
+                        unsigned char n = vWitnessScriptSolutions.back()[0];
+                        if (m > 0 && n > 0 && m <= n) {
+                            if (sizeWitnessStack != (m + 1))
+                                return TX_BAD_WITNESS;
+                            if (tx.wit.vtxinwit[i].scriptWitness.stack[0].size()) // BIP147
+                                return TX_BAD_WITNESS;
+                            for (unsigned int j = 1; j <= m; j++) {
+                                if (tx.wit.vtxinwit[i].scriptWitness.stack[j].size() > 73)
+                                    return TX_BAD_WITNESS;
+                            }
+                        }
+                    }
+                }
+                // More P2WSH tests could be added here.
+            }
+        }
+    }
+
+    return ret;
+}
+
 unsigned int nBytesPerSigOp = DEFAULT_BYTES_PER_SIGOP;
 
 int64_t GetVirtualTransactionSize(int64_t nWeight, int64_t nSigOpCost)
