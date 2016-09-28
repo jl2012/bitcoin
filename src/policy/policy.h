@@ -31,6 +31,12 @@ static const unsigned int DEFAULT_MAX_MEMPOOL_SIZE = 300;
 /** Default for -bytespersigop */
 static const unsigned int DEFAULT_BYTES_PER_SIGOP = 20;
 /**
+ *  Maximum standard signature hashing per transaction weight (byte hashed per weight)
+ *  This is equivalent to 36MB for an 100kB non-segwit transaction.
+ *  All transactions below 100kB with legitimate use of CHECK(MULTI)SIG should remain standard with this limit.
+ */
+static const unsigned int MAX_STANDARD_HASH_PER_WEIGHT = 90;
+/**
  * Standard script verification flags that standard transactions will comply
  * with. However scripts violating these flags may still be present in valid
  * blocks and we must accept those blocks.

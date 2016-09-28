@@ -1041,8 +1041,23 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
     return nSigOps;
 }
 
+int GetTransactionBaseSigHashOpCount(const CTransaction& tx, const CCoinsViewCache& inputs, int flags)
+{
+    int nSigHashOps = 0;
 
+    if (tx.IsCoinBase())
+        return nSigHashOps;
 
+    for (unsigned int i = 0; i < tx.vin.size(); i++) {
+        nSigHashOps += tx.vin[i].scriptSig.GetSigHashOpCount();
+        const CTxOut &prevout = inputs.GetOutputFor(tx.vin[i]);
+        nSigHashOps += prevout.scriptPubKey.GetSigHashOpCount();
+        if (prevout.scriptPubKey.IsPayToScriptHash() && (flags & SCRIPT_VERIFY_P2SH))
+            nSigHashOps += prevout.scriptPubKey.GetSigHashOpCount(tx.vin[i].scriptSig);
+    }
+
+    return nSigHashOps;
+}
 
 
 bool CheckTransaction(const CTransaction& tx, CValidationState &state)
@@ -1259,6 +1274,13 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         // Check for non-standard pay-to-script-hash in inputs
         if (fRequireStandard && !AreInputsStandard(tx, view))
             return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-nonstandard-inputs");
+
+        // Check for excessive SignatureHash operation
+        if (fRequireStandard) {
+            int64_t hashsize = GetTransactionHashableSize(tx) * GetTransactionBaseSigHashOpCount(tx, view, STANDARD_SCRIPT_VERIFY_FLAGS);
+            if (hashsize > MAX_STANDARD_HASH_PER_WEIGHT * GetTransactionWeight(tx))
+                return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-nonstandard-too-much-sighashing");
+        }
 
         int64_t nSigOpsCost = GetTransactionSigOpCost(tx, view, STANDARD_SCRIPT_VERIFY_FLAGS);
 
