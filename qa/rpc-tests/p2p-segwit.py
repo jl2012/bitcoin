@@ -1763,45 +1763,54 @@ class SegWitTest(BitcoinTestFramework):
         # Testing native P2WSH
         # Witness stack size, excluding witnessScript, over 100 is non-standard
         p2wsh_txs[0].wit.vtxinwit[0].scriptWitness.stack = [pad] * 101 + [scripts[0]]
-        self.node_acceptance(p2wsh_txs[0], standardnode=True, err="64: bad-witness-nonstandard")
+        self.std_node.test_transaction_acceptance(p2wsh_txs[0], True, False, b'bad-witness-nonstandard')
         # Non-standard nodes should accept
-        self.node_acceptance(p2wsh_txs[0], standardnode=False)
+        self.test_node.test_transaction_acceptance(p2wsh_txs[0], True, True)
 
         # Stack element size over 80 bytes is non-standard
         p2wsh_txs[1].wit.vtxinwit[0].scriptWitness.stack = [pad * 81] * 100 + [scripts[1]]
-        self.node_acceptance(p2wsh_txs[1], standardnode=True, err="64: bad-witness-nonstandard")
+        # It can't be used to blind a node to the transaction
+        self.std_node.announce_tx_and_wait_for_getdata(p2wsh_txs[1])
+        self.std_node.test_transaction_acceptance(p2wsh_txs[1], True, False, b'bad-witness-nonstandard')
+        self.std_node.announce_tx_and_wait_for_getdata(p2wsh_txs[1])
+        self.std_node.test_transaction_acceptance(p2wsh_txs[1], True, False, b'bad-witness-nonstandard')
         # Non-standard nodes should accept
-        self.node_acceptance(p2wsh_txs[1], standardnode=False)
+        self.test_node.test_transaction_acceptance(p2wsh_txs[1], True, True)
         # Standard nodes should accept if element size is not over 80 bytes
         p2wsh_txs[1].wit.vtxinwit[0].scriptWitness.stack = [pad * 80] * 100 + [scripts[1]]
-        self.node_acceptance(p2wsh_txs[1], standardnode=True)
+        self.std_node.announce_tx_and_wait_for_getdata(p2wsh_txs[1])
+        self.std_node.test_transaction_acceptance(p2wsh_txs[1], True, True)
 
         # witnessScript size at 3600 bytes is standard
         p2wsh_txs[2].wit.vtxinwit[0].scriptWitness.stack = [pad, pad, scripts[2]]
-        self.node_acceptance(p2wsh_txs[2], standardnode=True)
-        self.node_acceptance(p2wsh_txs[2], standardnode=False)
+        self.test_node.test_transaction_acceptance(p2wsh_txs[2], True, True)
+        self.std_node.test_transaction_acceptance(p2wsh_txs[2], True, True)
 
         # witnessScript size at 3601 bytes is non-standard
         p2wsh_txs[3].wit.vtxinwit[0].scriptWitness.stack = [pad, pad, pad, scripts[3]]
-        self.node_acceptance(p2wsh_txs[3], standardnode=True, err="64: bad-witness-nonstandard")
+        self.std_node.test_transaction_acceptance(p2wsh_txs[3], True, False, b'bad-witness-nonstandard')
         # Non-standard nodes should accept
-        self.node_acceptance(p2wsh_txs[3], standardnode=False)
+        self.test_node.test_transaction_acceptance(p2wsh_txs[3], True, True)
 
         # Repeating the same tests with P2SH-P2WSH
         p2sh_txs[0].wit.vtxinwit[0].scriptWitness.stack = [pad] * 101 + [scripts[0]]
-        self.node_acceptance(p2sh_txs[0], standardnode=True, err="64: bad-witness-nonstandard")
-        self.node_acceptance(p2sh_txs[0], standardnode=False)
+        self.std_node.test_transaction_acceptance(p2sh_txs[0], True, False, b'bad-witness-nonstandard')
+        self.test_node.test_transaction_acceptance(p2sh_txs[0], True, True)
         p2sh_txs[1].wit.vtxinwit[0].scriptWitness.stack = [pad * 81] * 100 + [scripts[1]]
-        self.node_acceptance(p2sh_txs[1], standardnode=True, err="64: bad-witness-nonstandard")
-        self.node_acceptance(p2sh_txs[1], standardnode=False)
+        self.std_node.announce_tx_and_wait_for_getdata(p2sh_txs[1])
+        self.std_node.test_transaction_acceptance(p2sh_txs[1], True, False, b'bad-witness-nonstandard')
+        self.std_node.announce_tx_and_wait_for_getdata(p2sh_txs[1])
+        self.std_node.test_transaction_acceptance(p2sh_txs[1], True, False, b'bad-witness-nonstandard')
+        self.test_node.test_transaction_acceptance(p2sh_txs[1], True, True)
         p2sh_txs[1].wit.vtxinwit[0].scriptWitness.stack = [pad * 80] * 100 + [scripts[1]]
-        self.node_acceptance(p2sh_txs[1], standardnode=True)
+        self.std_node.announce_tx_and_wait_for_getdata(p2sh_txs[1])
+        self.std_node.test_transaction_acceptance(p2sh_txs[1], True, True)
         p2sh_txs[2].wit.vtxinwit[0].scriptWitness.stack = [pad, pad, scripts[2]]
-        self.node_acceptance(p2sh_txs[2], standardnode=True)
-        self.node_acceptance(p2sh_txs[2], standardnode=False)
+        self.test_node.test_transaction_acceptance(p2sh_txs[2], True, True)
+        self.std_node.test_transaction_acceptance(p2sh_txs[2], True, True)
         p2sh_txs[3].wit.vtxinwit[0].scriptWitness.stack = [pad, pad, pad, scripts[3]]
-        self.node_acceptance(p2sh_txs[3], standardnode=True, err="64: bad-witness-nonstandard")
-        self.node_acceptance(p2sh_txs[3], standardnode=False)
+        self.std_node.test_transaction_acceptance(p2sh_txs[3], True, False, b'bad-witness-nonstandard')
+        self.test_node.test_transaction_acceptance(p2sh_txs[3], True, True)
 
         self.nodes[0].generate(1)  # Mine and clean up the mempool of non-standard node
         # Valid but non-standard transactions in a block should be accepted by standard node
@@ -1810,19 +1819,6 @@ class SegWitTest(BitcoinTestFramework):
         assert_equal(len(self.nodes[1].getrawmempool()), 0)
 
         self.utxo.pop(0)
-
-    def node_acceptance(self, tx, standardnode, err=""):
-        if (standardnode):
-            node = self.nodes[1]
-        else:
-            node = self.nodes[0]
-        if (err):
-            try:
-                node.sendrawtransaction(bytes_to_hex_str(tx.serialize_with_witness()), True)
-            except JSONRPCException as exp:
-                assert_equal(exp.error["message"], err)
-        else:
-            node.sendrawtransaction(bytes_to_hex_str(tx.serialize_with_witness()), True)
 
 
     def run_test(self):
