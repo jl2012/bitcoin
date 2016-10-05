@@ -69,11 +69,11 @@ BOOST_AUTO_TEST_CASE(GetSigOpCount)
  * Verifies script execution of the zeroth scriptPubKey of tx output and
  * zeroth scriptSig and witness of tx input.
  */
-ScriptError VerifyWithFlag(const CTransaction& output, const CMutableTransaction& input, int flags)
+ScriptError VerifyWithFlag(const CTransaction& output, const CMutableTransaction& input, int flags, const CAmount nFees = 0)
 {
     ScriptError error;
     CTransaction inputi(input);
-    bool ret = VerifyScript(inputi.vin[0].scriptSig, output.vout[0].scriptPubKey, inputi.wit.vtxinwit.size() > 0 ? &inputi.wit.vtxinwit[0].scriptWitness : NULL, flags, TransactionSignatureChecker(&inputi, 0, output.vout[0].nValue), &error);
+    bool ret = VerifyScript(inputi.vin[0].scriptSig, output.vout[0].scriptPubKey, inputi.wit.vtxinwit.size() > 0 ? &inputi.wit.vtxinwit[0].scriptWitness : NULL, flags, TransactionSignatureChecker(&inputi, 0, output.vout[0].nValue, nFees), &error);
     BOOST_CHECK((ret == true) == (error == SCRIPT_ERR_OK));
 
     return error;
