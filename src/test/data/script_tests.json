@@ -1856,6 +1856,7 @@
     "P2SH with CLEANSTACK"
 ],
 
+["Testing with uncompressed keys in witness v0 without WITNESS_PUBKEYTYPE"],
 [
     [
         "304402200d461c140cfdfcf36b94961db57ae8c18d1cb80e9d95a9e47ac22470c1bf125502201c8dc1cbfef6a3ef90acbbb992ca22fe9466ee6f9d4898eda277a7ac3ab4b25101",
@@ -2139,6 +2140,8 @@
     "WITNESS_UNEXPECTED",
     "P2PK with witness"
 ],
+
+["Testing with compressed keys in witness v0 with WITNESS_PUBKEYTYPE"],
 [
     [
         "304402204256146fcf8e73b0fd817ffa2a4e408ff0418ff987dd08a4f485b62546f6c43c02203f3c8c3e2febc051e1222867f5f9d0eaf039d6792911c10940aa3cc74123378e01",
@@ -2187,6 +2190,8 @@
     "OK",
     "Basic P2SH(P2WPKH) with compressed key"
 ],
+
+["Testing with uncompressed keys in witness v0 with WITNESS_PUBKEYTYPE"],
 [
     [
         "304402200d461c140cfdfcf36b94961db57ae8c18d1cb80e9d95a9e47ac22470c1bf125502201c8dc1cbfef6a3ef90acbbb992ca22fe9466ee6f9d4898eda277a7ac3ab4b25101",
@@ -2235,6 +2240,8 @@
     "WITNESS_PUBKEYTYPE",
     "Basic P2SH(P2WPKH)"
 ],
+
+["Testing P2WSH multisig with compressed keys"],
 [
     [
         "",
@@ -2287,6 +2294,8 @@
     "OK",
     "P2SH(P2WSH) CHECKMULTISIG with compressed keys"
 ],
+
+["Testing P2WSH multisig with compressed and uncompressed keys (first key being the key closer to the top of stack)"],
 [
     [
         "",

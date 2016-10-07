@@ -312,6 +312,8 @@ class SegWitTest(BitcoinTestFramework):
                 self.nodes[0].addwitnessaddress(i)
             except JSONRPCException as exp:
                 assert_equal(exp.error["message"], "Public key or redeemscript not known to wallet, or the key is uncompressed")
+            else:
+                assert(False)
 
         for i in compressed_address:
             witaddress = self.nodes[0].addwitnessaddress(i)
