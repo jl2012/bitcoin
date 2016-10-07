@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2015 The Bitcoin Core developers
+// Copyright (c) 2009-2016 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -247,6 +247,22 @@ bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, vecto
     }
 
     return true;
+}
+
+bool AreMultisigKeysCompressed(const CScript& scriptPubKey)
+{
+    txnouttype typ;
+    std::vector<std::vector<unsigned char> > vSolutions;
+    if (Solver(scriptPubKey, typ, vSolutions) && typ == TX_MULTISIG) {
+        for (size_t i = 1; i < vSolutions.size() - 1; i++) {
+            if (vSolutions[i].size() != 33)
+                return false;
+            if (vSolutions[i][0] != 0x02 && vSolutions[i][0] != 0x03)
+                return false;
+        }
+        return true;
+    }
+    return false;
 }
 
 namespace

@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2015 The Bitcoin Core developers
+// Copyright (c) 2009-2016 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -57,10 +57,18 @@ isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey)
             return ISMINE_SPENDABLE;
         break;
     case TX_PUBKEYHASH:
-    case TX_WITNESS_V0_KEYHASH:
         keyID = CKeyID(uint160(vSolutions[0]));
         if (keystore.HaveKey(keyID))
             return ISMINE_SPENDABLE;
+        break;
+    case TX_WITNESS_V0_KEYHASH:
+        keyID = CKeyID(uint160(vSolutions[0]));
+        if (keystore.HaveKey(keyID)) {
+            CPubKey pubkey;
+            keystore.GetPubKey(keyID, pubkey);
+            if (pubkey.IsCompressed())
+                return ISMINE_SPENDABLE;
+        }
         break;
     case TX_SCRIPTHASH:
     {
@@ -80,6 +88,8 @@ isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey)
         CScriptID scriptID = CScriptID(hash);
         CScript subscript;
         if (keystore.GetCScript(scriptID, subscript)) {
+            if (!AreMultisigKeysCompressed(subscript))
+                return ISMINE_NO;
             isminetype ret = IsMine(keystore, subscript);
             if (ret == ISMINE_SPENDABLE)
                 return ret;
