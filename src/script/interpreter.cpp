@@ -2077,6 +2077,21 @@ size_t static WitnessSigOps(int witversion, const std::vector<unsigned char>& wi
             return subscript.GetSigOpCount(true);
         }
     }
+    else if (witversion == 1 && witprogram.size() == 32) {
+        uint32_t nMASTVersion;
+        std::vector<uint256> path;
+        uint32_t position;
+        std::vector<std::vector<unsigned char> > stack;
+        std::vector<CScript> keyScriptCode, sigScriptCode;
+        size_t nSigOp = 0;
+        if (IsMASTStack(witness, nMASTVersion, path, position, stack, keyScriptCode) && nMASTVersion == 0 && ParseMASTV0Stack(stack, sigScriptCode)) {
+            for (size_t i = 0; i < sigScriptCode.size(); i++)
+                nSigOp += sigScriptCode[i].GetSigOpCount(true);
+            for (size_t i = 0; i < keyScriptCode.size(); i++)
+                nSigOp += keyScriptCode[i].GetSigOpCount(true);
+        }
+        return nSigOp;
+    }
 
     // Future flags may be implemented here.
     return 0;
