@@ -181,6 +181,8 @@ enum opcodetype
     OP_NOP9 = 0xb8,
     OP_NOP10 = 0xb9,
 
+    // MAST only
+    OP_SWAPSTACK = 0xba,
 
     // template matching params
     OP_SMALLINTEGER = 0xfa,

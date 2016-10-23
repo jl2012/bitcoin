@@ -641,6 +641,11 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                 }
                 break;
 
+                case OP_SWAPSTACK:
+                {
+                    swap(stack, altstack);
+                }
+
                 case OP_2DROP:
                 {
                     // (x1 x2 -- )
