@@ -1379,6 +1379,43 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                 }
                 break;
 
+                case OP_CHECKSIGFROMSTACKVERIFY:
+                {
+                    // (sig hash pubkey  -- )
+                    if (stack.size() < 3)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    valtype vchSig    = stacktop(-3);
+                    valtype vchHash   = stacktop(-2);
+                    valtype vchPubKey = stacktop(-1);
+
+                    if (!CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror))
+                        return false;
+
+                    if (vchPubKey[0] >= 2 && vchPubKey[0] <= 4) {
+                        CPubKey pubkey(vchPubKey);
+
+                        if (vchHash.size() != 32)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        uint256 hash(vchHash);
+
+                        if (vchSig.size() != 64)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        unsigned int nHashType = 0;
+                        unsigned int nOut = 0;
+                        if (!ToDERSig(vchSig, nHashType, nOut, serror))
+                            return false;
+
+                        if (!pubkey.Verify(hash, vchSig))
+                            return set_error(serror, SCRIPT_ERR_CHECKSIGVERIFY);
+                    }
+
+                    popstack(stack);
+                    popstack(stack);
+                    popstack(stack);
+                }
+                break;
+
                 case OP_CHECKMULTISIG:
                 case OP_CHECKMULTISIGVERIFY:
                 {
