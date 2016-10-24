@@ -94,6 +94,7 @@ static ScriptErrorDesc script_errors[]={
     {SCRIPT_ERR_SIG_NULLFAIL, "NULLFAIL"},
     {SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS, "DISCOURAGE_UPGRADABLE_NOPS"},
     {SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM, "DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM"},
+    {SCRIPT_ERR_DISCOURAGE_UPGRADABLE_KEYVERSION, "DISCOURAGE_UPGRADABLE_KEYVERSION"},
     {SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH, "WITNESS_PROGRAM_WRONG_LENGTH"},
     {SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY, "WITNESS_PROGRAM_WITNESS_EMPTY"},
     {SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH, "WITNESS_PROGRAM_MISMATCH"},
@@ -102,6 +103,7 @@ static ScriptErrorDesc script_errors[]={
     {SCRIPT_ERR_WITNESS_UNEXPECTED, "WITNESS_UNEXPECTED"},
     {SCRIPT_ERR_WITNESS_PUBKEYTYPE, "WITNESS_PUBKEYTYPE"},
     {SCRIPT_ERR_INVALID_MAST_STACK, "INVALID_MAST_STACK"},
+    {SCRIPT_ERR_UNCOMMITED_SIGSCRIPTCODE, "UNCOMMITED_SIGSCRIPTCODE"},
 };
 
 const char *FormatScriptError(ScriptError_t err)
@@ -355,7 +357,10 @@ public:
 
     TestBuilder& PushSig(const CKey& key, int nHashType = SIGHASH_ALL, unsigned int lenR = 32, unsigned int lenS = 32, SigVersion sigversion = SIGVERSION_BASE, CAmount amount = 0, CAmount nFees = 0)
     {
-        uint256 hash = SignatureHash(script, spendTx, 0, nHashType, amount, nFees, sigversion);
+        CPubKey pubkey;
+        uint256 hashScript;
+        std::vector<CScript> sigScriptCode;
+        uint256 hash = SignatureHash(pubkey, script, hashScript, sigScriptCode, spendTx, 0, 0, nHashType, amount, nFees, sigversion);
         std::vector<unsigned char> vchSig, r, s;
         uint32_t iter = 0;
         do {
@@ -1028,7 +1033,10 @@ BOOST_AUTO_TEST_CASE(script_PushData)
 CScript
 sign_multisig(CScript scriptPubKey, std::vector<CKey> keys, CTransaction transaction)
 {
-    uint256 hash = SignatureHash(scriptPubKey, transaction, 0, SIGHASH_ALL, 0, 0, SIGVERSION_BASE);
+    CPubKey pubkey;
+    uint256 hashScript;
+    std::vector<CScript> sigScriptCode;
+    uint256 hash = SignatureHash(pubkey, scriptPubKey, hashScript, sigScriptCode, transaction, 0, 0, SIGHASH_ALL, 0, 0, SIGVERSION_BASE);
 
     CScript result;
     //
@@ -1223,16 +1231,19 @@ BOOST_AUTO_TEST_CASE(script_combineSigs)
     BOOST_CHECK(combined.scriptSig == scriptSig);
 
     // A couple of partially-signed versions:
+    CPubKey pubkey;
+    uint256 hashScript;
+    std::vector<CScript> sigScriptCode;
     vector<unsigned char> sig1;
-    uint256 hash1 = SignatureHash(scriptPubKey, txTo, 0, SIGHASH_ALL, 0, 0, SIGVERSION_BASE);
+    uint256 hash1 = SignatureHash(pubkey, scriptPubKey, hashScript, sigScriptCode, txTo, 0, 0, SIGHASH_ALL, 0, 0, SIGVERSION_BASE);
     BOOST_CHECK(keys[0].Sign(hash1, sig1));
     sig1.push_back(SIGHASH_ALL);
     vector<unsigned char> sig2;
-    uint256 hash2 = SignatureHash(scriptPubKey, txTo, 0, SIGHASH_NONE, 0, 0, SIGVERSION_BASE);
+    uint256 hash2 = SignatureHash(pubkey, scriptPubKey, hashScript, sigScriptCode, txTo, 0, 0, SIGHASH_NONE, 0, 0, SIGVERSION_BASE);
     BOOST_CHECK(keys[1].Sign(hash2, sig2));
     sig2.push_back(SIGHASH_NONE);
     vector<unsigned char> sig3;
-    uint256 hash3 = SignatureHash(scriptPubKey, txTo, 0, SIGHASH_SINGLE, 0, 0, SIGVERSION_BASE);
+    uint256 hash3 = SignatureHash(pubkey, scriptPubKey, hashScript, sigScriptCode, txTo, 0, 0, SIGHASH_SINGLE, 0, 0, SIGVERSION_BASE);
     BOOST_CHECK(keys[2].Sign(hash3, sig3));
     sig3.push_back(SIGHASH_SINGLE);
 
