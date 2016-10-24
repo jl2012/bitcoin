@@ -15,7 +15,7 @@ Functionality to build scripts, as well as SignatureHash().
 """
 
 
-from .mininode import CTransaction, CTxOut, sha256, hash256, uint256_from_str, ser_uint256, ser_string
+from .mininode import CTransaction, CTxOut, sha256, hash256, uint256_from_str, ser_uint256, ser_string, COutPoint
 from binascii import hexlify
 import hashlib
 
@@ -955,5 +955,94 @@ def SegwitVersion1SignatureHash(script, txTo, inIdx, hashtype, amount):
     ss += ser_uint256(hashOutputs)
     ss += struct.pack("<i", txTo.nLockTime)
     ss += struct.pack("<I", hashtype)
+
+    return hash256(ss)
+
+SIGHASHV2_ALL = 0xffff
+SIGHASHV2_NONE = 0
+SIGHASHV2_VERSION = 0x80
+SIGHASHV2_KEYSCRIPTHASH = 0x40
+SIGHASHV2_FEE = 0x20
+SIGHASHV2_LOCKTIME = 0x10
+SIGHASHV2_THISINPUT = 0x08
+SIGHASHV2_ALLINPUT = 0x0c
+SIGHASHV2_ALLINPUT_ALLSEQUENCE = 0x0f
+SIGHASHV2_AMOUNT = 0x04
+SIGHASHV2_THISSEQUENCE = 0x02
+SIGHASHV2_PROGRAM = 0x01
+SIGHASHV2_INVALID = 0x09
+SIGHASHV2_ALLOUTPUT = 0xc000
+SIGHASHV2_DUALOUTPUT = 0x8000
+SIGHASHV2_SINGLEOUTPUT = 0x4000
+
+def MASTVersion0SignatureHash(pubkey, programIn, hashScriptIn, sigScriptCode, txTo, inIdx, outIdx, hashtype, amountIn, feesIn):
+    assert (len(sigScriptCode) == 6)
+    hashPrevouts = 0
+    hashSequence = 0
+    hashOutputs = 0
+    nVersion = txTo.nVersion if (hashtype & SIGHASHV2_VERSION) else -1
+    nLockTime = txTo.nLockTime if (hashtype & SIGHASHV2_LOCKTIME) else 0xffffffff
+    nSequence = txTo.vin[inIdx].nSequence if (hashtype & SIGHASHV2_THISSEQUENCE) else 0xffffffff
+    hashScript = uint256_from_str(hashScriptIn) if (hashtype & SIGHASHV2_KEYSCRIPTHASH) else 0
+    fees = feesIn if (hashtype & SIGHASHV2_FEE) else -1
+    prevout = txTo.vin[inIdx].prevout if (hashtype & SIGHASHV2_THISINPUT) else COutPoint(0, 0xffffffff)
+    amount = amountIn if (hashtype & SIGHASHV2_THISINPUT) else -1
+    program = programIn if (hashtype & SIGHASHV2_THISINPUT) else CScript()
+
+    if (hashtype & SIGHASHV2_THISINPUT):
+        if ((hashtype & SIGHASHV2_ALLINPUT) == SIGHASHV2_ALLINPUT):
+            serialize_prevouts = bytes()
+            for i in txTo.vin:
+                serialize_prevouts += i.prevout.serialize()
+            hashPrevouts = uint256_from_str(hash256(serialize_prevouts))
+        if ((hashtype & SIGHASHV2_ALLINPUT_ALLSEQUENCE) == SIGHASHV2_ALLINPUT_ALLSEQUENCE):
+            serialize_sequence = bytes()
+            for i in txTo.vin:
+                serialize_sequence += struct.pack("<I", i.nSequence)
+            hashSequence = uint256_from_str(hash256(serialize_sequence))
+        elif ((hashtype & SIGHASHV2_INVALID) == SIGHASHV2_INVALID):
+            assert(False)
+    else:
+        if (hashtype & SIGHASHV2_AMOUNT):
+            amount = amountIn
+        if (hashtype & SIGHASHV2_PROGRAM):
+            program = programIn
+
+    if ((hashtype & SIGHASHV2_ALLOUTPUT) == SIGHASHV2_ALLOUTPUT):
+        serialize_outputs = bytes()
+        for o in txTo.vout:
+            serialize_outputs += o.serialize()
+        hashOutputs = uint256_from_str(hash256(serialize_outputs))
+    elif (hashtype & SIGHASHV2_DUALOUTPUT):
+        assert(inIdx < len(txTo.vout) and outIdx < len(txTo.vout) and inIdx != outIdx)
+        serialize_outputs = bytes()
+        serialize_outputs += txTo.vout[outIdx].serialize()
+        serialize_outputs += txTo.vout[inIdx].serialize()
+        hashOutputs = uint256_from_str(hash256(serialize_outputs))
+    elif (hashtype & SIGHASHV2_SINGLEOUTPUT):
+        assert(outIdx < len(txTo.vout))
+        serialize_outputs = txTo.vout[outIdx].serialize()
+        hashOutputs = uint256_from_str(hash256(serialize_outputs))
+
+    ss = bytes()
+    ss += struct.pack("<i", nVersion)
+    ss += prevout.serialize()
+    for i in range(6):
+        if (hashtype & (1 << (8 + i))):
+            ss += ser_string(sigScriptCode[i])
+        else:
+            ss += ser_string(CScript())
+    ss += ser_uint256(hashScript)
+    ss += ser_string(program)
+    ss += struct.pack("<q", amount)
+    ss += struct.pack("<I", nSequence)
+    ss += ser_uint256(hashPrevouts)
+    ss += ser_uint256(hashSequence)
+    ss += ser_uint256(hashOutputs)
+    ss += struct.pack("<q", fees)
+    ss += struct.pack("<I", nLockTime)
+    ss += struct.pack("<I", hashtype)
+    ss += ser_string(pubkey)
+    ss += struct.pack("<I", 0x01200000)
 
     return hash256(ss)
