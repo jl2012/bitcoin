@@ -619,7 +619,7 @@ public:
      * counted more accurately, assuming they are of the form
      *  ... OP_N CHECKMULTISIG ...
      */
-    unsigned int GetSigOpCount(bool fAccurate) const;
+    unsigned int GetSigOpCount(bool fAccurate, bool fMAST = false) const;
 
     /**
      * Accurately count sigOps, including sigOps in
