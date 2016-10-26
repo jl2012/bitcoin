@@ -95,6 +95,8 @@ const char* ScriptErrorString(const ScriptError serror)
             return "Invalid witness stack for MAST";
         case SCRIPT_ERR_UNCOMMITED_SIGSCRIPTCODE:
             return "sigScriptCode is not committed to by signature";
+        case SCRIPT_ERR_CHECKMULTISIG_FLAGS:
+            return "Invalid signature flags for OP_CHECKMULTISIG(VERIFY)";
         case SCRIPT_ERR_UNKNOWN_ERROR:
         case SCRIPT_ERR_ERROR_COUNT:
         default: break;
