@@ -27,6 +27,26 @@ enum
     SIGHASH_ANYONECANPAY = 0x80,
 };
 
+enum
+{
+    SIGHASHV2_ALL = 0xffff,
+    SIGHASHV2_NONE = 0,
+    SIGHASHV2_VERSION = 0x80,
+    SIGHASHV2_KEYSCRIPTHASH = 0x40,
+    SIGHASHV2_FEE = 0x20,
+    SIGHASHV2_LOCKTIME = 0x10,
+    SIGHASHV2_THISINPUT = 0x08,
+    SIGHASHV2_ALLINPUT = 0x0c,
+    SIGHASHV2_ALLINPUT_ALLSEQUENCE = 0x0f,
+    SIGHASHV2_AMOUNT = 0x04,
+    SIGHASHV2_THISSEQUENCE = 0x02,
+    SIGHASHV2_PROGRAM = 0x01,
+    SIGHASHV2_INVALID = 0x09,
+    SIGHASHV2_ALLOUTPUT = 0xc000,
+    SIGHASHV2_DUALOUTPUT = 0x8000,
+    SIGHASHV2_SINGLEOUTPUT = 0x4000,
+};
+
 /** Script verification flags */
 enum
 {
@@ -130,12 +150,12 @@ enum SigVersion
     SIGVERSION_WITNESS_V1 = 2,
 };
 
-uint256 SignatureHash(const CScript &scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType, const CAmount& amount, const CAmount& nFees, SigVersion sigversion, const PrecomputedTransactionData* cache = NULL);
+uint256 SignatureHash(const CPubKey& pubkey, const CScript& scriptCode, const uint256& hashScript, std::vector<CScript> sigScriptCode, const CTransaction& txTo, unsigned int nIn, const unsigned int& nOut, unsigned int nHashType, const CAmount& amount, const CAmount& nFees, SigVersion sigversion, const PrecomputedTransactionData* cache = NULL);
 
 class BaseSignatureChecker
 {
 public:
-    virtual bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
+    virtual bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, const CScript& prevScript, const uint256& hashScript, const std::vector<CScript>& sigScriptCode, unsigned int nHashType, const unsigned int& nOut) const
     {
         return false;
     }
@@ -168,7 +188,7 @@ protected:
 public:
     TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const CAmount& nFeesIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), nFees(nFeesIn), txdata(NULL) {}
     TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const CAmount& nFeesIn, const PrecomputedTransactionData& txdataIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), nFees(nFeesIn), txdata(&txdataIn) {}
-    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const;
+    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, const CScript& prevScript, const uint256& hashScript, const std::vector<CScript>& sigScriptCode, unsigned int nHashType, const unsigned int& nOut) const;
     bool CheckLockTime(const CScriptNum& nLockTime) const;
     bool CheckSequence(const CScriptNum& nSequence) const;
 };
@@ -183,7 +203,7 @@ public:
 };
 
 bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* error = NULL);
-bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, int& nOpCount, ScriptError* error = NULL);
+bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, int& nOpCount, const CScript& prevScript, const uint256& hashScript, const std::vector<CScript>& sigScriptCode, const size_t& posSigScriptCode, unsigned int& fSigScriptCodeUncommitted, ScriptError* serror = NULL);
 bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror = NULL);
 
 bool IsMASTStack(const CScriptWitness& witness, uint32_t& nMASTVersion, std::vector<uint256>& path, uint32_t& position, std::vector<std::vector<unsigned char> >& stack, std::vector<CScript>& keyScriptCode);

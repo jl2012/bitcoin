@@ -133,6 +133,9 @@ BOOST_AUTO_TEST_CASE(sighash_test)
     #if defined(PRINT_SIGHASH_JSON)
     nRandomTests = 500;
     #endif
+    CPubKey pubkey;
+    uint256 hashScript;
+    std::vector<CScript> sigScriptCode;
     for (int i=0; i<nRandomTests; i++) {
         int nHashType = insecure_rand();
         CMutableTransaction txTo;
@@ -143,7 +146,7 @@ BOOST_AUTO_TEST_CASE(sighash_test)
 
         uint256 sh, sho;
         sho = SignatureHashOld(scriptCode, txTo, nIn, nHashType);
-        sh = SignatureHash(scriptCode, txTo, nIn, nHashType, 0, 0, SIGVERSION_BASE);
+        sh = SignatureHash(pubkey, scriptCode, hashScript, sigScriptCode, txTo, nIn, 0, nHashType, 0, 0, SIGVERSION_BASE);
         #if defined(PRINT_SIGHASH_JSON)
         CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
         ss << txTo;
@@ -170,6 +173,9 @@ BOOST_AUTO_TEST_CASE(sighash_test)
 BOOST_AUTO_TEST_CASE(sighash_from_data)
 {
     UniValue tests = read_json(std::string(json_tests::sighash, json_tests::sighash + sizeof(json_tests::sighash)));
+    CPubKey pubkey;
+    uint256 hashScript;
+    std::vector<CScript> sigScriptCode;
 
     for (unsigned int idx = 0; idx < tests.size(); idx++) {
         UniValue test = tests[idx];
@@ -209,7 +215,7 @@ BOOST_AUTO_TEST_CASE(sighash_from_data)
           continue;
         }
 
-        sh = SignatureHash(scriptCode, tx, nIn, nHashType, 0, 0, SIGVERSION_BASE);
+        sh = SignatureHash(pubkey, scriptCode, hashScript, sigScriptCode, tx, nIn, 0, nHashType, 0, 0, SIGVERSION_BASE);
         BOOST_CHECK_MESSAGE(sh.GetHex() == sigHashHex, strTest);
     }
 }
