@@ -157,10 +157,11 @@ const char* GetOpName(opcodetype opcode)
     }
 }
 
-unsigned int CScript::GetSigOpCount(bool fAccurate) const
+unsigned int CScript::GetSigOpCount(bool fAccurate, bool fMAST) const
 {
     unsigned int n = 0;
     const_iterator pc = begin();
+    vector<opcodetype> pushOpcodes;
     opcodetype lastOpcode = OP_INVALIDOPCODE;
     while (pc < end())
     {
@@ -169,14 +170,39 @@ unsigned int CScript::GetSigOpCount(bool fAccurate) const
             break;
         if (opcode == OP_CHECKSIG || opcode == OP_CHECKSIGVERIFY)
             n++;
-        else if (opcode == OP_CHECKMULTISIG || opcode == OP_CHECKMULTISIGVERIFY)
-        {
-            if (fAccurate && lastOpcode >= OP_1 && lastOpcode <= OP_16)
-                n += DecodeOP_N(lastOpcode);
-            else
-                n += MAX_PUBKEYS_PER_MULTISIG;
+        else if (opcode == OP_CHECKMULTISIG || opcode == OP_CHECKMULTISIGVERIFY) {
+            if (fMAST) {
+                unsigned int nKey = 0;
+                unsigned int nSig = 0;
+                if (!pushOpcodes.empty() && pushOpcodes.back() >= OP_1 && pushOpcodes.back() <= OP_16) {
+                    nKey = DecodeOP_N(pushOpcodes.back());
+                    n += nKey;
+                    if (pushOpcodes.size() >= nKey + 2) {
+                        opcodetype nSigCode = pushOpcodes.at(pushOpcodes.size() - nKey - 2);
+                        if (nSigCode >= OP_1 && nSigCode <= OP_16) {
+                            nSig = DecodeOP_N(nSigCode);
+                            if (nSig < nKey)
+                                n = n - nKey + nSig;
+                        }
+                    }
+                }
+                else
+                    n += MAX_PUBKEYS_PER_MULTISIG;
+            }
+            else {
+                if (fAccurate && lastOpcode >= OP_1 && lastOpcode <= OP_16)
+                    n += DecodeOP_N(lastOpcode);
+                else
+                    n += MAX_PUBKEYS_PER_MULTISIG;
+            }
         }
+        else if (opcode == OP_CHECKSIGFROMSTACKVERIFY && fMAST)
+            n++;
         lastOpcode = opcode;
+        if (opcode <= OP_16)
+            pushOpcodes.push_back(opcode);
+        else
+            pushOpcodes.clear();
     }
     return n;
 }
