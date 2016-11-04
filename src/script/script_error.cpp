@@ -73,6 +73,8 @@ const char* ScriptErrorString(const ScriptError serror)
             return "NOPx reserved for soft-fork upgrades";
         case SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM:
             return "Witness version reserved for soft-fork upgrades";
+        case SCRIPT_ERR_DISCOURAGE_UPGRADABLE_KEYVERSION:
+            return "Witness version reserved for soft-fork upgrades";
         case SCRIPT_ERR_PUBKEYTYPE:
             return "Public key is neither compressed or uncompressed";
         case SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH:
@@ -91,6 +93,8 @@ const char* ScriptErrorString(const ScriptError serror)
             return "Using non-compressed keys in segwit";
         case SCRIPT_ERR_INVALID_MAST_STACK:
             return "Invalid witness stack for MAST";
+        case SCRIPT_ERR_UNCOMMITED_SIGSCRIPTCODE:
+            return "sigScriptCode is not committed to by signature";
         case SCRIPT_ERR_UNKNOWN_ERROR:
         case SCRIPT_ERR_ERROR_COUNT:
         default: break;

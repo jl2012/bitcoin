@@ -70,7 +70,9 @@ static void VerifyScriptBench(benchmark::State& state)
     CMutableTransaction txSpend = BuildSpendingTransaction(scriptSig, txCredit);
     CScriptWitness& witness = txSpend.wit.vtxinwit[0].scriptWitness;
     witness.stack.emplace_back();
-    key.Sign(SignatureHash(witScriptPubkey, txSpend, 0, SIGHASH_ALL, txCredit.vout[0].nValue, SIGVERSION_WITNESS_V0), witness.stack.back(), 0);
+    uint256 hashScript;
+    std::vector<CScript> sigScriptCode;
+    key.Sign(SignatureHash(pubkey, witScriptPubkey, hashScript, sigScriptCode, txSpend, 0, 0, SIGHASH_ALL, txCredit.vout[0].nValue, 0, SIGVERSION_WITNESS_V0), witness.stack.back(), 0);
     witness.stack.back().push_back(static_cast<unsigned char>(SIGHASH_ALL));
     witness.stack.push_back(ToByteVector(pubkey));
 
