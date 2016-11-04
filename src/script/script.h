@@ -34,6 +34,9 @@ static const int MAX_SCRIPT_SIZE = 10000;
 // otherwise as UNIX timestamp.
 static const unsigned int LOCKTIME_THRESHOLD = 500000000; // Tue Nov  5 00:53:20 1985 UTC
 
+// Maximum number of sigScriptCode in MAST v0
+static const unsigned int MAX_MAST_V0_SIGSCRIPTCODE = 6;
+
 template <typename T>
 std::vector<unsigned char> ToByteVector(const T& in)
 {

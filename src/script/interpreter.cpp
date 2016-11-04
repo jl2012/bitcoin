@@ -12,6 +12,7 @@
 #include "pubkey.h"
 #include "script/script.h"
 #include "uint256.h"
+#include "consensus/merkle.h"
 
 using namespace std;
 
@@ -247,6 +248,12 @@ bool static CheckMinimalPush(const valtype& data, opcodetype opcode) {
 
 bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
 {
+    int nOpCount = 0;
+    return EvalScript(stack, script, flags, checker, sigversion, nOpCount, serror);
+}
+
+bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, int& nOpCount, ScriptError* serror)
+{
     static const CScriptNum bnZero(0);
     static const CScriptNum bnOne(1);
     static const CScriptNum bnFalse(0);
@@ -265,7 +272,6 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
     set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
     if (script.size() > MAX_SCRIPT_SIZE)
         return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
-    int nOpCount = 0;
     bool fRequireMinimal = (flags & SCRIPT_VERIFY_MINIMALDATA) != 0;
 
     try
@@ -868,7 +874,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     popstack(stack);
                     stack.push_back(vchHash);
                 }
-                break;                                   
+                break;
 
                 case OP_CODESEPARATOR:
                 {
@@ -1353,6 +1359,107 @@ bool TransactionSignatureChecker::CheckSequence(const CScriptNum& nSequence) con
     return true;
 }
 
+bool IsMASTStack(const CScriptWitness& witness, uint32_t& nMASTVersion, std::vector<uint256>& path, uint32_t& position, std::vector<std::vector<unsigned char> >& stack, std::vector<CScript>& keyScriptCode)
+{
+    size_t witstacksize = witness.stack.size();
+    if (witstacksize < 4)
+        return false;
+    std::vector<unsigned char> metadata = witness.stack.back(); // The last witness stack item is metadata
+    if (metadata.size() < 1 || metadata.size() > 5)
+        return false;
+
+    // The first byte of metadata is the number of keyScriptCode (1 to 255)
+    uint32_t nKeyScriptCode = static_cast<uint32_t>(metadata[0]);
+    if (nKeyScriptCode == 0 || witstacksize < nKeyScriptCode + 3)
+        return false;
+
+    // The rest of metadata is MAST version in minimally-coded unsigned little endian int
+    nMASTVersion = 0;
+    if (metadata.back() == 0)
+        return false;
+    if (metadata.size() > 1) {
+        for (size_t i = 1; i != metadata.size(); ++i)
+            nMASTVersion |= static_cast<uint32_t>(metadata[i]) << 8 * (i - 1);
+    }
+
+    // The second last witness stack item is the pathdata
+    // Size of pathdata must be divisible by 32 (0 is allowed)
+    // Depth of the Merkle tree is implied by the size of pathdata, and must not be greater than 32
+    std::vector<unsigned char> pathdata = witness.stack.at(witstacksize - 2);
+    if (pathdata.size() & 0x1F)
+        return false;
+    unsigned int depth = pathdata.size() >> 5;
+    if (depth > 32)
+        return false;
+
+    // path is a vector of 32-byte hashes
+    path.resize(depth);
+    for (unsigned int j = 0; j < depth; j++)
+        memcpy(path[j].begin(), &pathdata[32 * j], 32);
+
+    // The third last witness stack item is the positiondata
+    // Position is in minimally-coded unsigned little endian int
+    std::vector<unsigned char> positiondata = witness.stack.at(witstacksize - 3);
+    position = 0;
+    if (positiondata.size() > 4)
+        return false;
+    if (positiondata.size() > 0) {
+        if (positiondata.back() == 0)
+            return false;
+        for (size_t k = 0; k != positiondata.size(); ++k)
+            position |= static_cast<uint32_t>(positiondata[k]) << 8 * k;
+    }
+
+    // Position value must not exceed the number of leaves at the depth
+    if (depth < 32) {
+        if (position >= (1U << depth))
+            return false;
+    }
+
+    // keyScriptCode are located before positiondata
+    keyScriptCode.resize(nKeyScriptCode);
+    for (size_t i = 0; i < nKeyScriptCode; i++) {
+        size_t pos = witstacksize - 3 - nKeyScriptCode + i;
+        keyScriptCode.at(i) = CScript(witness.stack.at(pos).begin(), witness.stack.at(pos).end());
+    }
+
+    // Return unused items as stack
+    stack = std::vector<std::vector<unsigned char> > (witness.stack.begin(), witness.stack.end() - 3 - nKeyScriptCode);
+
+    return true;
+}
+
+bool IsMASTV0Stack(std::vector<std::vector<unsigned char> >& stack, std::vector<CScript>& sigScriptCode)
+{
+    if (stack.size() == 0)
+        return false;
+
+    size_t nSigScriptCode = 0;
+    if (stack.back().size() == 0)
+        nSigScriptCode = 0;
+    else if (stack.back().size() == 1 && stack.back().at(0) >= 1 && stack.back().at(0) <= MAX_MAST_V0_SIGSCRIPTCODE)
+        nSigScriptCode = static_cast<size_t>(stack.back().at(0));
+    else
+        return false;
+
+    if (stack.size() < nSigScriptCode + 1)
+        return false;
+
+    sigScriptCode.clear();
+    sigScriptCode.resize(MAX_MAST_V0_SIGSCRIPTCODE);
+    for (size_t i = nSigScriptCode; i > 0; i--) {
+        size_t pos = stack.size() - 1 - i;
+        // The first defined sigScriptCode must not be empty or that becomes malleable.
+        if (i == nSigScriptCode && stack.at(pos).size() == 0)
+            return false;
+        sigScriptCode.at(MAX_MAST_V0_SIGSCRIPTCODE - i) = CScript(stack.at(pos).begin(), stack.at(pos).end());
+    }
+
+    // Unused items are input stack
+    stack = std::vector<std::vector<unsigned char> > (stack.begin(), stack.end() - 1 - nSigScriptCode);
+    return true;
+}
+
 static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, const std::vector<unsigned char>& program, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
 {
     vector<vector<unsigned char> > stack;
@@ -1380,6 +1487,77 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             stack = witness.stack;
         } else {
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
+        }
+    } else if (witversion == 1 && (flags & SCRIPT_VERIFY_MAST)) {
+        if (program.size() == 32) {
+            uint256 hashScript;
+            uint32_t nMASTVersion = 0xffffffff;
+            std::vector <uint256> path;
+            uint32_t position;
+            std::vector <CScript> keyScriptCode, sigScriptCode;
+
+            if (!IsMASTStack(witness, nMASTVersion, path, position, stack, keyScriptCode))
+                return set_error(serror, SCRIPT_ERR_INVALID_MAST_STACK);
+            if (nMASTVersion == 0 && !IsMASTV0Stack(stack, sigScriptCode))
+                return set_error(serror, SCRIPT_ERR_INVALID_MAST_STACK);
+
+            // Calculate the script hash
+            CHashWriter sScriptHash(SER_GETHASH, 0);
+            // Starts with 1-byte number of keyScriptCode
+            sScriptHash << static_cast<unsigned char>(keyScriptCode.size());
+
+            for (size_t i = 0; i < keyScriptCode.size(); i++) {
+                CScript subscript = keyScriptCode.at(i);
+                uint256 hashSubScript;
+                CHash256().Write(&subscript[0], subscript.size()).Finalize(hashSubScript.begin());
+                sScriptHash << hashSubScript;
+            }
+            hashScript = sScriptHash.GetHash();
+
+            // Calculate MAST Root and compare against witness program
+            uint256 rootScript = ComputeMerkleRootFromBranch(hashScript, path, position);
+            CHashWriter sRoot(SER_GETHASH, 0);
+            sRoot << nMASTVersion << rootScript;
+            uint256 rootMAST = sRoot.GetHash();
+            if (memcmp(rootMAST.begin(), &program[0], 32))
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+
+            if (nMASTVersion == 0) {
+                int nOpCount = keyScriptCode.size() + path.size(); // Each keyScriptCode and tree depth consumes an nOpCount
+                if (nOpCount > MAX_OPS_PER_SCRIPT)
+                    return set_error(serror, SCRIPT_ERR_OP_COUNT);
+
+                // Check the size of input stack
+                for (unsigned int i = 0; i < stack.size(); i++) {
+                    if (stack.at(i).size() > MAX_SCRIPT_ELEMENT_SIZE)
+                        return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+                }
+
+                // Check script size and evaluate scripts. Stack must be empty after evaluation of all scripts
+                size_t totalScriptSize = 0;
+                for (size_t i = 0; i < MAX_MAST_V0_SIGSCRIPTCODE; i++) {
+                    totalScriptSize += sigScriptCode[i].size();
+                    if (totalScriptSize > MAX_SCRIPT_SIZE)
+                        return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
+                    if (sigScriptCode[i].size() > 0) {
+                        if (!EvalScript(stack, sigScriptCode[i], flags, checker, SIGVERSION_WITNESS_V1, nOpCount, serror))
+                            return false;
+                    }
+                }
+                for (size_t i = 0; i < keyScriptCode.size(); i++) {
+                    totalScriptSize += keyScriptCode[i].size();
+                    if (totalScriptSize > MAX_SCRIPT_SIZE)
+                        return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
+                    if (!EvalScript(stack, keyScriptCode[i], flags, checker, SIGVERSION_WITNESS_V1, nOpCount, serror))
+                        return false;
+                }
+                if (stack.size() != 0)
+                    return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+            }
+            // Unknown MAST version is non-standard
+            else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM)
+                return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
+            return set_success(serror);
         }
     } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) {
         return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
