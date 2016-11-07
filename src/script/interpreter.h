@@ -170,6 +170,12 @@ public:
          return false;
     }
 
+    virtual std::vector<unsigned char> PushTxData(const int& nType, const int& nIndex) const
+    {
+         std::vector<unsigned char> vchZero(0);
+         return vchZero;
+    }
+
     virtual ~BaseSignatureChecker() {}
 };
 
@@ -191,6 +197,7 @@ public:
     bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, const CScript& prevScript, const uint256& hashScript, const std::vector<CScript>& sigScriptCode, unsigned int nHashType, const unsigned int& nOut) const;
     bool CheckLockTime(const CScriptNum& nLockTime) const;
     bool CheckSequence(const CScriptNum& nSequence) const;
+    std::vector<unsigned char> PushTxData(const int& nType, const int& nIndex) const;
 };
 
 class MutableTransactionSignatureChecker : public TransactionSignatureChecker

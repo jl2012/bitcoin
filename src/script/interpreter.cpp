@@ -1613,6 +1613,57 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                 }
                 break;
 
+                case OP_PUSHTXDATA:
+                {
+                    if (stack.size() < 1)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    const CScriptNum nType(stacktop(-1), fRequireMinimal, 7);
+                    popstack(stack);
+                    if (nType < 0 || nType > 15)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                    else if (nType <= 9) {
+                        stack.push_back(checker.PushTxData(nType.getint(), 0));
+                    }
+                    else if (nType == 10) {
+                        valtype vchHash(32);
+                        memcpy(&vchHash[0], &hashScript, 32);
+                        stack.push_back(vchHash);
+                    }
+                    else if (nType == 11) {
+                        valtype vchScript(prevScript.size());
+                        memcpy(&vchScript[0], &prevScript[0], prevScript.size());
+                        stack.push_back(vchScript);
+                    }
+                    else {
+                        if (stack.size() < 1)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        CScriptNum nIndex(stacktop(-1), fRequireMinimal, 7);
+                        popstack(stack);
+                        if (nIndex < -1)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        if (nIndex == -1)
+                            nIndex = CScriptNum(checker.PushTxData(0, 0), false);
+                        if (nType <= 14) {
+                            if (nIndex >= CScriptNum(checker.PushTxData(1, 0), false))
+                                return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                            if (nType != 13) {
+                                stack.push_back(checker.PushTxData(13, nIndex.getint()));
+                                stack.push_back(checker.PushTxData(10, nIndex.getint()));
+                            }
+                            if (nType >= 13)
+                                stack.push_back(checker.PushTxData(11, nIndex.getint()));
+                        }
+                        else {
+                            if (nIndex >= CScriptNum(checker.PushTxData(2, 0), false))
+                                return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                            stack.push_back(checker.PushTxData(14, nIndex.getint()));
+                            stack.push_back(checker.PushTxData(12, nIndex.getint()));
+                        }
+                    }
+                }
+                break;
+
                 default:
                     return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
             }
@@ -2006,6 +2057,53 @@ bool TransactionSignatureChecker::CheckSequence(const CScriptNum& nSequence) con
         return false;
 
     return true;
+}
+
+std::vector<unsigned char> TransactionSignatureChecker::PushTxData(const int& nType, const int& nIndex) const
+{
+    //std::vector<unsigned char> vchFalse(0);
+    CScriptNum bn(0);
+    if (nType <= 12) {
+        if (nType == 0)
+            bn = nIn;
+        else if (nType == 1)
+            bn = txTo->vin.size();
+        else if (nType == 2)
+            bn = txTo->vout.size();
+        else if (nType == 3)
+            bn = amount;
+        else if (nType == 4)
+            bn = nFees;
+        else if (nType == 5)
+            bn = static_cast<uint32_t>(txTo->nVersion);
+        else if (nType == 6)
+            bn = txTo->nLockTime;
+        else if (nType == 7)
+            bn = ::GetSerializeSize(*txTo, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS);
+        else if (nType == 8)
+            bn = ::GetSerializeSize(*txTo, SER_NETWORK, PROTOCOL_VERSION);
+        else if (nType == 9)
+            bn = GetTransactionWeight(*txTo);
+        else if (nType == 10)
+            bn = txTo->vin[nIndex].prevout.n;
+        else if (nType == 11)
+            bn = txTo->vin[nIndex].nSequence;
+        else
+            bn = txTo->vout[nIndex].nValue;
+        return bn.getvch();
+    }
+    else if (nType == 13) {
+        valtype vchHash(32);
+        memcpy(&vchHash[0], &txTo->vin[nIndex].prevout.hash, 32);
+        return vchHash;
+    }
+    else if (nType == 14) {
+        const CScript scriptPubKey = txTo->vout[nIndex].scriptPubKey;
+        valtype vchScript(scriptPubKey.size());
+        memcpy(&vchScript[0], &scriptPubKey[0], scriptPubKey.size());
+        return vchScript;
+    }
+    return bn.getvch();
 }
 
 bool IsMASTStack(const CScriptWitness& witness, uint32_t& nMASTVersion, std::vector<uint256>& path, uint32_t& position, std::vector<std::vector<unsigned char> >& stack, std::vector<CScript>& keyScriptCode)

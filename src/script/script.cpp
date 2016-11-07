@@ -144,6 +144,7 @@ const char* GetOpName(opcodetype opcode)
     // MAST only
     case OP_SWAPSTACK              : return "OP_SWAPSTACK";
     case OP_CHECKSIGFROMSTACKVERIFY: return "OP_CHECKSIGFROMSTACKVERIFY";
+    case OP_PUSHTXDATA             : return "OP_PUSHTXDATA";
 
     case OP_INVALIDOPCODE          : return "OP_INVALIDOPCODE";
 

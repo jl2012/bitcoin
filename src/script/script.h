@@ -183,6 +183,7 @@ enum opcodetype
     // MAST only
     OP_SWAPSTACK = 0xba,
     OP_CHECKSIGFROMSTACKVERIFY = 0xbb,
+    OP_PUSHTXDATA = 0xbc,
 
     // template matching params
     OP_SMALLINTEGER = 0xfa,
