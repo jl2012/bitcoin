@@ -40,13 +40,15 @@ class NULLDUMMYTest(BitcoinTestFramework):
 
     def __init__(self):
         super().__init__()
-        self.num_nodes = 1
+        self.num_nodes = 2
         self.setup_clean_chain = True
 
     def setup_network(self):
-        # Must set the blockversion for this test
-        self.nodes = start_nodes(self.num_nodes, self.options.tmpdir,
-                                 extra_args=[['-debug', '-whitelist=127.0.0.1', '-walletprematurewitness']])
+        self.nodes = []
+        self.nodes.append(start_node(0, self.options.tmpdir, ["-debug", "-logtimemicros=1", '-walletprematurewitness', '-debug=net']))
+        # Start a node for testing IsStandard rules.
+        self.nodes.append(start_node(1, self.options.tmpdir, ["-debug", "-logtimemicros=1", '-walletprematurewitness', '-debug=net']))
+        connect_nodes(self.nodes[0], 1)
 
     def run_test(self):
         self.address = self.nodes[0].getnewaddress()
@@ -55,60 +57,113 @@ class NULLDUMMYTest(BitcoinTestFramework):
         self.wit_ms_address = self.nodes[0].addwitnessaddress(self.ms_address)
 
         NetworkThread().start() # Start up network handling in another thread
-        self.coinbase_blocks = self.nodes[0].generate(2) # Block 2
+        self.nodes[0].generate(1)
+        self.nodes[0].generate(1)
+        hash = self.nodes[0].getblockhash(2)
+        block = self.nodes[0].getblockheader(hash, False)
+        print (block)
+        self.coinbase_blocks = self.nodes[0].generate(199) # Block 2
         coinbase_txid = []
         for i in self.coinbase_blocks:
             coinbase_txid.append(self.nodes[0].getblock(i)['tx'][0])
-        self.nodes[0].generate(427) # Block 429
-        self.lastblockhash = self.nodes[0].getbestblockhash()
-        self.tip = int("0x" + self.lastblockhash, 0)
-        self.lastblockheight = 429
-        self.lastblocktime = int(time.time()) + 429
-        #print (self.nodes[0].getinfo())
-        rawblock = self.nodes[0].getblock(self.lastblockhash, False)
-        print (rawblock)
-        print (self.nodes[0].getblock(self.lastblockhash))
 
-        print ("Test 1: NULLDUMMY compliant base transactions should be accepted to mempool and mined before activation [430]")
-        test1txs = [self.create_transaction(self.nodes[0], coinbase_txid[0], self.ms_address, 49)]
-        txid1 = self.tx_submit(self.nodes[0], test1txs[0])
-        test1txs.append(self.create_transaction(self.nodes[0], txid1, self.ms_address, 48))
-        txid2 = self.tx_submit(self.nodes[0], test1txs[1])
-        test1txs.append(self.create_transaction(self.nodes[0], coinbase_txid[1], self.wit_ms_address, 49))
-        txid3 = self.tx_submit(self.nodes[0], test1txs[2])
-        self.nodes[0].generate(1)
-        self.lastblockhash = self.nodes[0].getbestblockhash()
-        rawblock = self.nodes[0].getblock(self.lastblockhash, False)
-        print (rawblock)
-        print (self.nodes[0].getblock(self.lastblockhash))
-        # self.block_submit(self.nodes[0], test1txs, False, True)
+        for i in range(202):
+            hash = self.nodes[0].getblockhash(i)
+            block = self.nodes[0].getblockheader(hash, False)
+            print (block)
+        # self.nodes[0].generate(1)
+        # print (self.nodes[1].submitblock(block))
+        # print (self.nodes[1].getinfo())
+
+
+        # self.nodes[0].generate()
+        time.sleep(3)
+        print (self.nodes[0].getinfo())
+        print (self.nodes[1].getinfo())
+        # assert(False)
+
+        # self.nodes[0].generate(127) # Block 429
+        # time.sleep(10)
+        # self.nodes[0].generate(300)
+
+
+        # self.nodes[0].generate(1)
+        # time.sleep(3)
+        # print (self.nodes[0].getinfo())
+        # print (self.nodes[1].getinfo())
+        # hash = self.nodes[1].getblockhash(199)
+        # print (self.nodes[1].getblock(hash, False))
+        # hash = self.nodes[0].getblockhash(200)
+        # block = self.nodes[0].getblock(hash, False)
+        # print (block)
+        # print (self.nodes[1].submitblock(block))
+        # print (self.nodes[1].getinfo())
+        # self.nodes[0].generate(1)
+        # time.sleep(3)
+        # print (self.nodes[0].getinfo())
+        # print (self.nodes[1].getinfo())
+
+        # self.lastblockhash = self.nodes[0].getbestblockhash()
+        # self.tip = int("0x" + self.lastblockhash, 0)
+        # self.lastblockheight = 429
+        # self.lastblocktime = int(time.time()) + 429
+        # #print (self.nodes[0].getinfo())
+        # rawblock = self.nodes[0].getblock(self.lastblockhash, False)
+        # print (rawblock)
+        # print (self.nodes[0].getblock(self.lastblockhash))
         #
+        # print ("Test 1: NULLDUMMY compliant base transactions should be accepted to mempool and mined before activation [430]")
+        # test1txs = [self.create_transaction(self.nodes[0], coinbase_txid[0], self.ms_address, 49)]
+        # txid1 = self.tx_submit(self.nodes[0], test1txs[0])
+        # test1txs.append(self.create_transaction(self.nodes[0], txid1, self.ms_address, 48))
+        # txid2 = self.tx_submit(self.nodes[0], test1txs[1])
+        # test1txs.append(self.create_transaction(self.nodes[0], coinbase_txid[1], self.wit_ms_address, 49))
+        # txid3 = self.tx_submit(self.nodes[0], test1txs[2])
+        # self.nodes[0].generate(2)
+        # self.lastblockhash = self.nodes[0].getbestblockhash()
+        # rawblock = self.nodes[0].getblock(self.lastblockhash, False)
+        # print (rawblock)
+        # print (self.nodes[0].getblock(self.lastblockhash))
+        # # self.block_submit(self.nodes[0], test1txs, False, True)
+        # #
         # print ("Test 2: Non-NULLDUMMY base multisig transaction should not be accepted to mempool before activation")
-        # test2tx = self.create_transaction(self.nodes[0], txid2, self.ms_address, 48)
-        # trueDummy(test2tx)
-        # txid4 = self.tx_submit(self.nodes[0], test2tx, NULLDUMMY_ERROR)
-        #
-        # print ("Test 3: Non-NULLDUMMY base transactions should be accepted in a block before activation [431]")
-        # self.block_submit(self.nodes[0], [test2tx], False, True)
-        #
-        # print ("Test 4: Non-NULLDUMMY base multisig transaction is invalid after activation")
-        # test4tx = self.create_transaction(self.nodes[0], txid4, self.address, 47)
-        # test6txs=[CTransaction(test4tx)]
-        # trueDummy(test4tx)
-        # self.tx_submit(self.nodes[0], test4tx, NULLDUMMY_ERROR)
-        # self.block_submit(self.nodes[0], [test4tx])
-        #
-        # print ("Test 5: Non-NULLDUMMY P2WSH multisig transaction invalid after activation")
+        # # test2tx = self.create_transaction(self.nodes[0], txid2, self.ms_address, 48)
+        # # trueDummy(test2tx)
+        # # txid4 = self.tx_submit(self.nodes[0], test2tx, NULLDUMMY_ERROR)
+        # #
+        # # print ("Test 3: Non-NULLDUMMY base transactions should be accepted in a block before activation [431]")
+        # # self.block_submit(self.nodes[0], [test2tx], False, True)
+        # #
+        # # print ("Test 4: Non-NULLDUMMY base multisig transaction is invalid after activation")
+        # # test4tx = self.create_transaction(self.nodes[0], txid4, self.address, 47)
+        # # test6txs=[CTransaction(test4tx)]
+        # # trueDummy(test4tx)
+        # # self.tx_submit(self.nodes[0], test4tx, NULLDUMMY_ERROR)
+        # # self.block_submit(self.nodes[0], [test4tx])
+        # #
+        # # print ("Test 5: Non-NULLDUMMY P2WSH multisig transaction invalid after activation")
+        # test6txs = []
         # test5tx = self.create_transaction(self.nodes[0], txid3, self.wit_address, 48)
         # test6txs.append(CTransaction(test5tx))
-        # test5tx.wit.vtxinwit[0].scriptWitness.stack[0] = b'\x01'
-        # self.tx_submit(self.nodes[0], test5tx, NULLDUMMY_ERROR)
-        # self.block_submit(self.nodes[0], [test5tx], True)
-        #
-        # print ("Test 6: NULLDUMMY compliant base/witness transactions should be accepted to mempool and in block after activation [432]")
+        # # test5tx.wit.vtxinwit[0].scriptWitness.stack[0] = b'\x01'
+        # # self.tx_submit(self.nodes[0], test5tx, NULLDUMMY_ERROR)
+        # # self.block_submit(self.nodes[0], [test5tx], True)
+        # #
+        # # print ("Test 6: NULLDUMMY compliant base/witness transactions should be accepted to mempool and in block after activation [432]")
         # for i in test6txs:
         #     self.tx_submit(self.nodes[0], i)
-        # self.block_submit(self.nodes[0], test6txs, True, True)
+        #
+        # self.nodes[0].generate(1)
+        # self.lastblockhash = self.nodes[0].getbestblockhash()
+        # rawblock = self.nodes[0].getblock(self.lastblockhash, False)
+        # print (rawblock)
+        # print (self.nodes[0].getblock(self.lastblockhash))
+        # # self.block_submit(self.nodes[0], test6txs, True, True)
+        # time.sleep(5)
+        # print (self.nodes[0].getinfo())
+        # print (self.nodes[1].getinfo())
+        # assert(False)
+
 
 
     def create_transaction(self, node, txid, to_address, amount):

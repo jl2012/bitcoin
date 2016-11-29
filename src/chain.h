@@ -195,11 +195,21 @@ public:
     unsigned int nStatus;
 
     //! block header
+    uint32_t nHeaderHeight;
     uint32_t nDeploymentSoft;
-    uint256 hashMerkleRoot;
+    uint32_t nDeploymentHard;
     uint32_t nTTime;
-    unsigned int nBits;
-    unsigned int nNonce;
+    uint32_t nBits;
+    uint32_t nNonce;
+    uint32_t nNonceC2;
+    std::vector<uint8_t> vchNonceC3;
+    uint256 hashMerkleRoot;
+    uint256 hashMerkleRootWitnesses;
+    uint64_t nTxsBytes;
+    uint64_t nTxsCost;
+    uint64_t nTxsSigops;
+    uint32_t nTxsCount;
+    std::vector<uint256> vhashCMTBranches;
 
     //! (memory only) High 31 bits of timestamp
     int32_t nHTime;
@@ -222,12 +232,21 @@ public:
         nStatus = 0;
         nSequenceId = 0;
 
+        nHeaderHeight = 0;
         nDeploymentSoft = 0;
+        nDeploymentHard = 0;
         hashMerkleRoot = uint256();
-        nHTime         = -1;
-        nTTime         = 0;
-        nBits          = 0;
-        nNonce         = 0;
+        hashMerkleRootWitnesses = uint256();
+        nTTime = 0;
+        nBits = 0;
+        nNonce = 0;
+        nNonceC2 = 0;
+        vchNonceC3.clear();
+        nTxsBytes = 0;
+        nTxsCost = 0;
+        nTxsSigops = 0;
+        nTxsCount = 0;
+        vhashCMTBranches.clear();
     }
 
     CBlockIndex()
@@ -239,12 +258,22 @@ public:
     {
         SetNull();
 
+        nHeaderHeight   = block.nHeight;
         nDeploymentSoft = block.nDeploymentSoft;
+        nDeploymentHard = block.nDeploymentHard;
         hashMerkleRoot = block.hashMerkleRoot;
         nHTime         = -1;
         nTTime         = block.nTTime;
         nBits          = block.nBits;
         nNonce         = block.nNonce;
+        nNonceC2       = block.nNonceC2;
+        vchNonceC3     = block.vchNonceC3;
+        hashMerkleRootWitnesses = block.hashMerkleRootWitnesses;
+        nTxsBytes      = block.nTxsBytes;
+        nTxsCost       = block.nTxsCost;
+        nTxsSigops     = block.nTxsSigops;
+        nTxsCount      = block.nTxsCount;
+        vhashCMTBranches = block.vhashCMTBranches;
     }
 
     void InitialiseFromPrev() {
@@ -274,13 +303,24 @@ public:
     CBlockHeader GetBlockHeader() const
     {
         CBlockHeader block;
+        block.nHeight        = nHeaderHeight;
         block.nDeploymentSoft = nDeploymentSoft;
         if (pprev)
             block.hashPrevBlock = pprev->GetBlockHash();
-        block.hashMerkleRoot = hashMerkleRoot;
+        block.nDeploymentSoft = nDeploymentSoft;
+        block.nDeploymentHard = nDeploymentHard;
         block.nTTime         = nTTime;
         block.nBits          = nBits;
         block.nNonce         = nNonce;
+        block.nNonceC2       = nNonceC2;
+        block.vchNonceC3     = vchNonceC3;
+        block.hashMerkleRoot = hashMerkleRoot;
+        block.hashMerkleRootWitnesses = hashMerkleRootWitnesses;
+        block.nTxsBytes      = nTxsBytes;
+        block.nTxsCost       = nTxsCost;
+        block.nTxsSigops     = nTxsSigops;
+        block.nTxsCount      = nTxsCount;
+        block.vhashCMTBranches = vhashCMTBranches;
         return block;
     }
 
@@ -386,23 +426,43 @@ public:
             READWRITE(VARINT(nUndoPos));
 
         // block header
+        READWRITE(nHeaderHeight);
         READWRITE(nDeploymentSoft);
+        READWRITE(nDeploymentHard);
         READWRITE(hashPrev);
-        READWRITE(hashMerkleRoot);
         READWRITE(nTTime);
         READWRITE(nBits);
         READWRITE(nNonce);
+        READWRITE(nNonceC2);
+        READWRITE(vchNonceC3);
+        READWRITE(hashMerkleRoot);
+        READWRITE(hashMerkleRootWitnesses);
+        READWRITE(nTxsBytes);
+        READWRITE(nTxsCost);
+        READWRITE(nTxsSigops);
+        READWRITE(nTxsCount);
+        READWRITE(vhashCMTBranches);
     }
 
     uint256 GetBlockHash() const
     {
         CBlockHeader block;
+        block.nHeight        = nHeaderHeight;
         block.nDeploymentSoft = nDeploymentSoft;
-        block.hashPrevBlock   = hashPrev;
-        block.hashMerkleRoot  = hashMerkleRoot;
-        block.nTTime          = nTTime;
-        block.nBits           = nBits;
-        block.nNonce          = nNonce;
+        block.nDeploymentHard = nDeploymentHard;
+        block.hashPrevBlock  = hashPrev;
+        block.nTTime         = nTTime;
+        block.nBits          = nBits;
+        block.nNonce         = nNonce;
+        block.nNonceC2       = nNonceC2;
+        block.vchNonceC3     = vchNonceC3;
+        block.hashMerkleRoot = hashMerkleRoot;
+        block.hashMerkleRootWitnesses = hashMerkleRootWitnesses;
+        block.nTxsBytes      = nTxsBytes;
+        block.nTxsCost       = nTxsCost;
+        block.nTxsSigops     = nTxsSigops;
+        block.nTxsCount      = nTxsCount;
+        block.vhashCMTBranches = vhashCMTBranches;
         return block.GetHash();
     }
 

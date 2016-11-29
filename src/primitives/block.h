@@ -33,8 +33,7 @@ public:
     uint32_t nTTime;
     uint32_t nBits;
     uint32_t nNonce;
-    uint16_t nNonceC2a;
-    uint8_t nNonceC2b;
+    uint32_t nNonceC2;
     std::vector<uint8_t> vchNonceC3;
 
     // info about transactions
@@ -60,7 +59,7 @@ public:
         int nVersion = s.GetVersion();
         if (nVersion & SERIALIZE_BLOCK_LEGACY) {
             if (ser_action.ForRead()) {
-                SetNull();
+                SetNewHeaderNull();
             }
             READWRITE(nDeploymentSoft);
             READWRITE(hashPrevBlock);
@@ -69,6 +68,8 @@ public:
             READWRITE(nBits);
             READWRITE(nNonce);
         } else {
+            if (!ser_action.ForRead() && nHeight < HARDFORK_HEIGHT)
+                SetNewHeaderNull();
             READWRITE(nHeight);
             READWRITE(nDeploymentSoft);
             READWRITE(nDeploymentHard);
@@ -76,42 +77,43 @@ public:
             READWRITE(nTTime);
             READWRITE(nBits);
             READWRITE(nNonce);
-            READWRITE(nNonceC2a);
-            READWRITE(nNonceC2b);
+            READWRITE(nNonceC2);
             READWRITE(vchNonceC3);
-            if (vchNonceC3.size() < 4 && nHeight >= HARDFORK_HEIGHT) {
-                throw std::ios_base::failure("CBlockHeader::SerializationOp: short class 3 nonce");
-            }
-
             READWRITE(hashMerkleRoot);
             READWRITE(hashMerkleRootWitnesses);
             READWRITE(nTxsBytes);
             READWRITE(nTxsCost);
             READWRITE(nTxsSigops);
             READWRITE(nTxsCount);
-
             READWRITE(vhashCMTBranches);
+            if (ser_action.ForRead() && nHeight < HARDFORK_HEIGHT)
+                SetNewHeaderNull();
         }
     }
 
-    void SetNull()
+    void SetNewHeaderNull()
     {
         nHeight = 0;
-        nDeploymentSoft = 0;
         nDeploymentHard = 0;
-        hashPrevBlock.SetNull();
-        hashMerkleRoot.SetNull();
+        nNonceC2 = 0;
+        vchNonceC3.clear();
         hashMerkleRootWitnesses.SetNull();
-        nTTime = 0;
-        nBits = 0;
-        nNonce = 0;
-        nNonceC2a = 0;
-        nNonceC2b = 0;
         nTxsBytes = 0;
         nTxsCost = 0;
         nTxsSigops = 0;
         nTxsCount = 0;
         vhashCMTBranches.clear();
+    }
+
+    void SetNull()
+    {
+        nDeploymentSoft = 0;
+        hashPrevBlock.SetNull();
+        hashMerkleRoot.SetNull();
+        nTTime = 0;
+        nBits = 0;
+        nNonce = 0;
+        SetNewHeaderNull();
     }
 
     bool IsNull() const
@@ -166,12 +168,22 @@ public:
     CBlockHeader GetBlockHeader() const
     {
         CBlockHeader block;
+        block.nHeight        = nHeight;
         block.nDeploymentSoft = nDeploymentSoft;
+        block.nDeploymentHard = nDeploymentHard;
         block.hashPrevBlock  = hashPrevBlock;
-        block.hashMerkleRoot = hashMerkleRoot;
         block.nTTime         = nTTime;
         block.nBits          = nBits;
         block.nNonce         = nNonce;
+        block.nNonceC2       = nNonceC2;
+        block.vchNonceC3     = vchNonceC3;
+        block.hashMerkleRoot = hashMerkleRoot;
+        block.hashMerkleRootWitnesses = hashMerkleRootWitnesses;
+        block.nTxsBytes      = nTxsBytes;
+        block.nTxsCost       = nTxsCost;
+        block.nTxsSigops     = nTxsSigops;
+        block.nTxsCount      = nTxsCount;
+        block.vhashCMTBranches = vhashCMTBranches;
         return block;
     }
 

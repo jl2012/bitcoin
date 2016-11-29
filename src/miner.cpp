@@ -147,8 +147,9 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     pblock->vchNonceC3.push_back(0xbb);
     pblock->vchNonceC3.push_back(0xcc);
     pblock->vchNonceC3.push_back(0xdd);
-    pblock->nNonceC2a = 0xcdab;
-    pblock->nNonceC2b = 0xef;
+    pblock->vchNonceC3.push_back(0xee);
+    pblock->vchNonceC3.push_back(0xff);
+    pblock->nNonceC2 = 0x60efcdab;
     pblock->nDeploymentSoft = ComputeBlockVersion(pindexPrev, chainparams.GetConsensus());
     // -regtest only: allow overriding block.nVersion with
     // -blockversion=N to test forking scenarios

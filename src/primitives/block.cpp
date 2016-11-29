@@ -71,11 +71,14 @@ uint256 CBlockHeader::GetHash() const
 
         const uint256 hashHC = writer1.GetHash();
 
-        assert(vchNonceC3.size() >= 4);
-        const uint32_t pos_nonce = (uint32_t(vchNonceC3[0]) << 0x18)
-                                 | (uint32_t(vchNonceC3[1]) << 0x10)
-                                 | (uint32_t(vchNonceC3[2]) <<    8)
-                                 | (uint32_t(vchNonceC3[3])        );
+        std::vector<uint8_t> vchNonceC3Copy = vchNonceC3;
+        if (vchNonceC3Copy.size() < 4)
+            vchNonceC3Copy.resize(4, 0x00);
+
+        const uint32_t pos_nonce = (uint32_t(vchNonceC3Copy[0]) << 0x18)
+                                 | (uint32_t(vchNonceC3Copy[1]) << 0x10)
+                                 | (uint32_t(vchNonceC3Copy[2]) <<    8)
+                                 | (uint32_t(vchNonceC3Copy[3])        );
         const uint32_t pos = vector_position_for_hc(pos_nonce, 1 << vhashCMTBranches.size());
         const uint256 hashCMR = ComputeMerkleRootFromBranch(hashHC, vhashCMTBranches, pos);
 
@@ -98,12 +101,7 @@ uint256 CBlockHeader::GetHash() const
         writer2.write("\x01\0\0\0\0\0\0\0" "\0\0\0\0\0\0", 0xE);
 
         const uint256 hashHB = writer2.GetHash();
-
-//        assert(!(nNonceC2 >> 0x18));
-//        ser_writedata24(writer, nNonceC2);
-        add_to_hash(writer, nNonceC2a);
-        add_to_hash(writer, nNonceC2b);
-        writer.write("\x60", 1);
+        add_to_hash(writer, nNonceC2);
         add_to_hash(writer, hashPrevBlock);
         add_to_hash(writer, hashHB);
         add_to_hash(writer, nTTime);
@@ -123,7 +121,6 @@ uint256 CBlockHeader::GetHash() const
 std::string CBlock::ToString() const
 {
     std::stringstream s;
-    uint32_t nNonceC2 = nNonceC2a + (nNonceC2b << 16);
     s << strprintf("CBlock(hash=%s, height=%u, deploySoft=0x%08x, deployHard=0x%06x, hashPrevBlock=%s, hashMerkleRoot=%s, hashMerkleRootWitness=%s, nTime=%u, nBits=%08x, nNonce=%u:%u:%s, vtx=%u, vbranches)\n",
         GetHash().ToString(),
         nHeight,
