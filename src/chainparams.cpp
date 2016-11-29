@@ -107,7 +107,7 @@ public:
         pchMessageStart[0] = 0xf9;
         pchMessageStart[1] = 0xbe;
         pchMessageStart[2] = 0xb4;
-        pchMessageStart[3] = 0xd9;
+        pchMessageStart[3] = 0xdd; // no connection to real mainnet
         nDefaultPort = 8333;
         nPruneAfterHeight = 100000;
 
@@ -200,7 +200,7 @@ public:
         pchMessageStart[0] = 0x0b;
         pchMessageStart[1] = 0x11;
         pchMessageStart[2] = 0x09;
-        pchMessageStart[3] = 0x07;
+        pchMessageStart[3] = 0x77; // no connection to real testnet
         nDefaultPort = 18333;
         nPruneAfterHeight = 1000;
 
@@ -242,6 +242,62 @@ public:
     }
 };
 static CTestNetParams testNetParams;
+
+/**
+ * Force net
+ */
+class CForceNetParams : public CChainParams {
+public:
+    CForceNetParams() {
+        strNetworkID = "forcenet";
+        consensus.nSubsidyHalvingInterval = 21000;
+        consensus.BIP34Height = 10;
+        consensus.BIP34Hash = uint256();
+        consensus.BIP65Height = 10;
+        consensus.BIP66Height = 10;
+        consensus.powLimit = uint256S("000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        consensus.nPowTargetTimespan = 24 * 60 * 60; // one day
+        consensus.nPowTargetSpacing = 60;
+        consensus.fPowAllowMinDifficultyBlocks = true;
+        consensus.fPowNoRetargeting = false;
+        consensus.nRuleChangeActivationThreshold = 108; // 75% for testchains
+        consensus.nMinerConfirmationWindow = 144; // Faster than normal (144 instead of 2016)
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].bit = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nTimeout = 999999999999ULL;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].bit = 1;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = 999999999999ULL;
+
+        // The best chain should have at least this much work.
+        consensus.nMinimumChainWork = uint256S("0x00");
+
+        pchMessageStart[0] = 0xcd;
+        pchMessageStart[1] = 0xba;
+        pchMessageStart[2] = 0x1a;
+        pchMessageStart[3] = 0x4c;
+        nDefaultPort = 38901;
+        nPruneAfterHeight = 1000;
+
+        genesis = CreateGenesisBlock(1480431213, 0x67dc08, 0x1e00ffff, 1, 50 * COIN);
+        consensus.hashGenesisBlock = genesis.GetHash();
+
+        vFixedSeeds.clear();
+        vSeeds.clear();
+
+        fMiningRequiresPeers = true;
+        fDefaultConsistencyChecks = false;
+        fRequireStandard = false;
+        fMineBlocksOnDemand = false;
+
+        base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,30);
+        base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,50);
+        base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,158);
+        base58Prefixes[EXT_PUBLIC_KEY] = boost::assign::list_of(0x05)(0x35)(0x87)(0xCF).convert_to_container<std::vector<unsigned char> >();
+        base58Prefixes[EXT_SECRET_KEY] = boost::assign::list_of(0x05)(0x35)(0x83)(0x94).convert_to_container<std::vector<unsigned char> >();
+    }
+};
+static CForceNetParams forceNetParams;
 
 /**
  * Regression test
@@ -330,6 +386,8 @@ CChainParams& Params(const std::string& chain)
             return mainParams;
     else if (chain == CBaseChainParams::TESTNET)
             return testNetParams;
+    else if (chain == CBaseChainParams::FORCENET)
+            return forceNetParams;
     else if (chain == CBaseChainParams::REGTEST)
             return regTestParams;
     else

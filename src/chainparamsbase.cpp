@@ -12,6 +12,7 @@
 
 const std::string CBaseChainParams::MAIN = "main";
 const std::string CBaseChainParams::TESTNET = "test";
+const std::string CBaseChainParams::FORCENET = "forcenet";
 const std::string CBaseChainParams::REGTEST = "regtest";
 
 void AppendParamsHelpMessages(std::string& strUsage, bool debugHelp)
@@ -51,6 +52,20 @@ public:
 };
 static CBaseTestNetParams testNetParams;
 
+/**
+ * Force net
+ */
+class CBaseForceNetParams : public CBaseChainParams
+{
+public:
+    CBaseForceNetParams()
+    {
+        nRPCPort = 38902;
+        strDataDir = "forcenet1";
+    }
+};
+static CBaseForceNetParams forceNetParams;
+
 /*
  * Regression test
  */
@@ -79,6 +94,8 @@ CBaseChainParams& BaseParams(const std::string& chain)
         return mainParams;
     else if (chain == CBaseChainParams::TESTNET)
         return testNetParams;
+    else if (chain == CBaseChainParams::FORCENET)
+        return forceNetParams;
     else if (chain == CBaseChainParams::REGTEST)
         return regTestParams;
     else
@@ -94,13 +111,16 @@ std::string ChainNameFromCommandLine()
 {
     bool fRegTest = GetBoolArg("-regtest", false);
     bool fTestNet = GetBoolArg("-testnet", false);
+    bool fForceNet = GetBoolArg("-forcenet", false);
 
-    if (fTestNet && fRegTest)
-        throw std::runtime_error("Invalid combination of -regtest and -testnet.");
+    if ((int)fRegTest + (int)fTestNet + (int)fForceNet > 1)
+        throw std::runtime_error("Invalid combination of -regtest, -testnet, -forcenet.");
     if (fRegTest)
         return CBaseChainParams::REGTEST;
     if (fTestNet)
         return CBaseChainParams::TESTNET;
+    if (fForceNet)
+        return CBaseChainParams::FORCENET;
     return CBaseChainParams::MAIN;
 }
 
