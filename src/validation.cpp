@@ -2992,6 +2992,16 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const Co
         }
     }
 
+    if (nHeight >= HARDFORK_HEIGHT) {
+        if ((GetBlockWeight(block) > (MAX_BLOCK_WEIGHT * 2) || GetBlockWeight(block) > block.nTxsWeight))
+            return state.DoS(100, false, REJECT_INVALID, "bad-blk-weight", false, strprintf("%s : weight limit failed", __func__));
+        if (::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION) > block.nTxsBytes)
+            return state.DoS(100, false, REJECT_INVALID, "bad-blk-size", false, strprintf("%s : size limit failed", __func__));
+        if (block.vtx.size() > block.nTxsCount)
+            return state.DoS(100, false, REJECT_INVALID, "bad-txs-count", false, strprintf("%s : txs count failed", __func__));
+        return true;
+    }
+
     // After the coinbase witness nonce and commitment are verified,
     // we can check if the block weight passes (before we've checked the
     // coinbase witness, it would be possible for the weight to be too
