@@ -687,6 +687,43 @@ UniValue getblockheader(const JSONRPCRequest& request)
     return blockheaderToJSON(pblockindex);
 }
 
+UniValue getlegacyblockheader(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 1)
+        throw runtime_error(
+                "getlegacyblockheader \"hash\"\n"
+                        "\nEeturns a string that is serialized, hex-encoded data for blockheader 'hash' in legacy format.\n"
+                        "\nArguments:\n"
+                        "1. \"hash\"          (string, required) The block hash\n"
+                        "\nResult:\n"
+                        "\"data\"             (string) A string that is serialized, hex-encoded data for block 'hash' in legacy format.\n"
+                        "\nExamples:\n"
+                + HelpExampleCli("getlegacyblockheader", "\"00000000c937983704a73af28acdec37b049d214adbda81d7e2a3dd146f6ed09\"")
+                + HelpExampleRpc("getlegacyblockheader", "\"00000000c937983704a73af28acdec37b049d214adbda81d7e2a3dd146f6ed09\"")
+        );
+
+    LOCK(cs_main);
+
+    std::string strHash = request.params[0].get_str();
+    uint256 hash(uint256S(strHash));
+
+    if (mapBlockIndex.count(hash) == 0)
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
+
+    CBlockIndex* pblockindex = mapBlockIndex[hash];
+
+    int nVersion = PROTOCOL_VERSION;
+    if (pblockindex->nHeight < HARDFORK_HEIGHT)
+        nVersion |= SERIALIZE_BLOCK_LEGACY;
+    else
+        nVersion |= SERIALIZE_BLOCK_DUMMY;
+
+    CDataStream ssBlock(SER_NETWORK, nVersion);
+    ssBlock << pblockindex->GetBlockHeader();
+    std::string strHex = HexStr(ssBlock.begin(), ssBlock.end());
+    return strHex;
+}
+
 UniValue getblock(const JSONRPCRequest& request)
 {
     if (request.fHelp || request.params.size() < 1 || request.params.size() > 2)
@@ -758,6 +795,47 @@ UniValue getblock(const JSONRPCRequest& request)
     }
 
     return blockToJSON(block, pblockindex);
+}
+
+UniValue getlegacyblock(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 1)
+        throw runtime_error(
+                "getlegacyblock \"hash\"\n"
+                        "\nReturns a string that is serialized, hex-encoded data for block 'hash' in legacy format.\n"
+                        "\nArguments:\n"
+                        "1. \"hash\"          (string, required) The block hash\n"
+                        "\nResult:\n"
+                        "\"data\"             (string) A string that is serialized, hex-encoded data for block 'hash' in legacy format.\n"
+                        "\nExamples:\n"
+                + HelpExampleCli("getlegacyblock", "\"00000000c937983704a73af28acdec37b049d214adbda81d7e2a3dd146f6ed09\"")
+                + HelpExampleRpc("getlegacyblock", "\"00000000c937983704a73af28acdec37b049d214adbda81d7e2a3dd146f6ed09\"")
+        );
+
+    LOCK(cs_main);
+
+    std::string strHash = request.params[0].get_str();
+    uint256 hash(uint256S(strHash));
+
+    if (mapBlockIndex.count(hash) == 0)
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
+
+    CBlock block;
+    CBlockIndex* pblockindex = mapBlockIndex[hash];
+
+    if(!ReadBlockFromDisk(block, pblockindex, Params().GetConsensus()))
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Can't read block from disk");
+
+    int nVersion = PROTOCOL_VERSION;
+    if (pblockindex->nHeight < HARDFORK_HEIGHT)
+        nVersion |= SERIALIZE_BLOCK_LEGACY;
+    else
+        nVersion |= SERIALIZE_BLOCK_DUMMY;
+
+    CDataStream ssBlock(SER_NETWORK, nVersion);
+    ssBlock << block;
+    std::string strHex = HexStr(ssBlock.begin(), ssBlock.end());
+    return strHex;
 }
 
 struct CCoinsStats
@@ -1420,8 +1498,10 @@ static const CRPCCommand commands[] =
     { "blockchain",         "getbestblockhash",       &getbestblockhash,       true,  {} },
     { "blockchain",         "getblockcount",          &getblockcount,          true,  {} },
     { "blockchain",         "getblock",               &getblock,               true,  {"blockhash","verbose"} },
+    { "blockchain",         "getlegacyblock",         &getlegacyblock,         true,  {"blockhash"} },
     { "blockchain",         "getblockhash",           &getblockhash,           true,  {"height"} },
     { "blockchain",         "getblockheader",         &getblockheader,         true,  {"blockhash","verbose"} },
+    { "blockchain",         "getlegacyblockheader",   &getlegacyblockheader,   true,  {"blockhash"} },
     { "blockchain",         "getchaintips",           &getchaintips,           true,  {} },
     { "blockchain",         "getdifficulty",          &getdifficulty,          true,  {} },
     { "blockchain",         "getmempoolancestors",    &getmempoolancestors,    true,  {"txid","verbose"} },
