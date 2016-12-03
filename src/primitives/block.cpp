@@ -51,70 +51,66 @@ namespace {
     }
 }
 
+uint256 CBlockHeader::GetHashCMR() const
+{
+    CHashWriter writer(SER_GETHASH, 0);
+    add_to_hash(writer, nTxsBytes);
+    add_to_hash(writer, nTxsWeight);
+    add_to_hash(writer, nTxsSigops);
+    add_to_hash(writer, nTxsCount);
+    add_to_hash(writer, nDeploymentHard & 0x00ffffff);
+    add_to_hash(writer, nDeploymentSoft);
+    add_to_hash(writer, hashMerkleRoot);
+    add_to_hash(writer, hashMerkleRootWitnesses);
+
+    const uint256 hashHC = writer.GetHash();
+
+    std::vector<uint8_t> vchNonceC3Copy = vchNonceC3;
+    if (vchNonceC3Copy.size() < 4)
+        vchNonceC3Copy.resize(4, 0x00);
+
+    const uint32_t pos_nonce = (uint32_t(vchNonceC3Copy[0]) << 0x18)
+                             | (uint32_t(vchNonceC3Copy[1]) << 0x10)
+                             | (uint32_t(vchNonceC3Copy[2]) <<    8)
+                             | (uint32_t(vchNonceC3Copy[3])        );
+    const uint32_t pos = vector_position_for_hc(pos_nonce, 1 << vhashCMTBranches.size());
+    return ComputeMerkleRootFromBranch(hashHC, vhashCMTBranches, pos);
+}
+
+uint256 CBlockHeader::GetHashHB() const
+{
+    CHashWriter writer(SER_GETHASH, 0);
+    writer.write("\x77\x77\x77\x77\x01\0\0\0" "\0\0\0\0\0\0\0\0", 0x10);
+    writer.write("\0\0\0\0\0\0\0\0" "\0\0\0\0\0\0\0\0", 0x10);
+    writer.write("\0\0\0\0\0\xff\xff\xff" "\xff", 9);
+    const CScript serHeight = CScript() << nHeight;
+    const uint8_t nLenToken = (serHeight.size() + 33 + vchNonceC3.size());
+    ser_writedata8(writer, nLenToken - 3);
+    add_to_hash(writer, CFlatData(serHeight));
+    ser_writedata8(writer, nDeploymentHard >> 24);
+    add_to_hash(writer, GetHashCMR());
+    add_to_hash(writer, CFlatData(vchNonceC3));
+    add_to_hash(writer, nLenToken);
+    writer.write("\x01\0\0\0\0\0\0\0" "\0\0\0\0\0\0", 0xE);
+    return writer.GetHash();
+}
+
 uint256 CBlockHeader::GetHash() const
 {
     CHashWriter writer(SER_GETHASH, 0);
     if (nHeight >= HARDFORK_HEIGHT) {
-        CHashWriter writer1(SER_GETHASH, 0);
-        CHashWriter writer2(SER_GETHASH, 0);
-        add_to_hash(writer1, nTxsBytes);
-        add_to_hash(writer1, nTxsCost);
-        add_to_hash(writer1, nTxsSigops);
-        add_to_hash(writer1, nTxsCount);
-        {
-            const uint16_t nDeploymentHardWithinMM = nDeploymentHard;
-            add_to_hash(writer1, nDeploymentHardWithinMM);
-        }
-        add_to_hash(writer1, nDeploymentSoft);
-        add_to_hash(writer1, hashMerkleRoot);
-        add_to_hash(writer1, hashMerkleRootWitnesses);
-
-        const uint256 hashHC = writer1.GetHash();
-
-        assert(vchNonceC3.size() >= 4);
-        const uint32_t pos_nonce = (uint32_t(vchNonceC3[0]) << 0x18)
-                                 | (uint32_t(vchNonceC3[1]) << 0x10)
-                                 | (uint32_t(vchNonceC3[2]) <<    8)
-                                 | (uint32_t(vchNonceC3[3])        );
-        const uint32_t pos = vector_position_for_hc(pos_nonce, 1 << vhashCMTBranches.size());
-        const uint256 hashCMR = ComputeMerkleRootFromBranch(hashHC, vhashCMTBranches, pos);
-
-        writer2.write("\x77\x77\x77\x77\x01\0\0\0" "\0\0\0\0\0\0\0\0", 0x10);
-        writer2.write("\0\0\0\0\0\0\0\0" "\0\0\0\0\0\0\0\0", 0x10);
-        writer2.write("\0\0\0\0\0\xff\xff\xff" "\xff", 9);
-        const CScript serHeight = CScript() << nHeight;
-        const uint8_t nLenToken = (serHeight.size() + sizeof(hashCMR) + vchNonceC3.size());
-        ser_writedata8(writer2, nLenToken - 3);
-        add_to_hash(writer2, nLenToken);
-        add_to_hash(writer2, CFlatData(serHeight));
-        {
-            const uint8_t nDeploymentMMHard = nDeploymentHard >> 16;
-            add_to_hash(writer2, nDeploymentMMHard);
-        }
-        add_to_hash(writer2, hashCMR);
-        add_to_hash(writer2, vchNonceC3);
-        add_to_hash(writer2, CFlatData(vchNonceC3));
-        add_to_hash(writer2, nLenToken);
-        writer2.write("\x01\0\0\0\0\0\0\0" "\0\0\0\0\0\0", 0xE);
-
-        const uint256 hashHB = writer2.GetHash();
-
-        assert(nNonceC2 >> 0x18);
-        ser_writedata24(writer, nNonceC2);
-        writer.write("\x60", 1);
+        add_to_hash(writer, nNonceC2);
         add_to_hash(writer, hashPrevBlock);
-        add_to_hash(writer, hashHB);
-        add_to_hash(writer, nTTime);
-        add_to_hash(writer, nBits);
-        add_to_hash(writer, nNonce);
-    } else {
+        add_to_hash(writer, GetHashHB());
+    }
+    else {
         add_to_hash(writer, nDeploymentSoft);
         add_to_hash(writer, hashPrevBlock);
         add_to_hash(writer, hashMerkleRoot);
-        add_to_hash(writer, nTTime);
-        add_to_hash(writer, nBits);
-        add_to_hash(writer, nNonce);
     }
+    add_to_hash(writer, nTTime);
+    add_to_hash(writer, nBits);
+    add_to_hash(writer, nNonce);
     return writer.GetHash();
 }
 

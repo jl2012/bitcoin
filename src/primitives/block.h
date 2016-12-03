@@ -12,6 +12,7 @@
 
 static const uint32_t HARDFORK_HEIGHT = 4194304;  // 2088 Q1
 static const int SERIALIZE_BLOCK_LEGACY = 0x04000000;
+static const int SERIALIZE_BLOCK_DUMMY = 0x02000000;
 
 int64_t GetBlockTime(uint32_t nBlockTTime, int64_t nPrevBlockTime);
 
@@ -40,7 +41,7 @@ public:
     uint256 hashMerkleRoot;
     uint256 hashMerkleRootWitnesses;
     uint64_t nTxsBytes;
-    uint64_t nTxsCost;
+    uint64_t nTxsWeight;
     uint64_t nTxsSigops;
     uint32_t nTxsCount;
 
@@ -59,7 +60,7 @@ public:
         int nVersion = s.GetVersion();
         if (nVersion & SERIALIZE_BLOCK_LEGACY) {
             if (ser_action.ForRead()) {
-                SetNull();
+                SetNewHeaderNull();
             }
             READWRITE(nDeploymentSoft);
             READWRITE(hashPrevBlock);
@@ -67,7 +68,26 @@ public:
             READWRITE(nTTime);
             READWRITE(nBits);
             READWRITE(nNonce);
-        } else {
+        }
+        else if (nVersion & SERIALIZE_BLOCK_DUMMY) {
+            uint256 hashHB;
+            if (ser_action.ForRead())
+                SetNull();
+            else
+                hashHB = GetHashHB();
+            READWRITE(nNonceC2);
+            READWRITE(hashPrevBlock);
+            READWRITE(hashHB);
+            READWRITE(nTTime);
+            READWRITE(nBits);
+            READWRITE(nNonce);
+        }
+        else {
+            if (!ser_action.ForRead()) {
+                if (nHeight < HARDFORK_HEIGHT)
+                   SetNewHeaderNull();
+                assert(vhashCMTBranches.size() <= 32);
+            }
             READWRITE(nHeight);
             READWRITE(nDeploymentSoft);
             READWRITE(nDeploymentHard);
@@ -77,38 +97,45 @@ public:
             READWRITE(nNonce);
             READWRITE(nNonceC2);
             READWRITE(vchNonceC3);
-            if (vchNonceC3.size() < 4 && nHeight >= HARDFORK_HEIGHT) {
-                throw std::ios_base::failure("CBlockHeader::SerializationOp: short class 3 nonce");
-            }
-
             READWRITE(hashMerkleRoot);
             READWRITE(hashMerkleRootWitnesses);
             READWRITE(nTxsBytes);
-            READWRITE(nTxsCost);
+            READWRITE(nTxsWeight);
             READWRITE(nTxsSigops);
             READWRITE(nTxsCount);
-
             READWRITE(vhashCMTBranches);
+            if (ser_action.ForRead()) {
+                if (nHeight < HARDFORK_HEIGHT)
+                    SetNewHeaderNull();
+                if (vhashCMTBranches.size() > 32)
+                    vhashCMTBranches.resize(32);
+            }
         }
+    }
+
+    void SetNewHeaderNull()
+    {
+        nHeight = 0;
+        nDeploymentHard = 0;
+        nNonceC2 = 0;
+        vchNonceC3.clear();
+        hashMerkleRootWitnesses.SetNull();
+        nTxsBytes = 0;
+        nTxsWeight = 0;
+        nTxsSigops = 0;
+        nTxsCount = 0;
+        vhashCMTBranches.clear();
     }
 
     void SetNull()
     {
-        nHeight = 0;
         nDeploymentSoft = 0;
-        nDeploymentHard = 0;
         hashPrevBlock.SetNull();
         hashMerkleRoot.SetNull();
-        hashMerkleRootWitnesses.SetNull();
         nTTime = 0;
         nBits = 0;
         nNonce = 0;
-        nNonceC2 = 0;
-        nTxsBytes = 0;
-        nTxsCost = 0;
-        nTxsSigops = 0;
-        nTxsCount = 0;
-        vhashCMTBranches.clear();
+        SetNewHeaderNull();
     }
 
     bool IsNull() const
@@ -116,6 +143,8 @@ public:
         return (nBits == 0);
     }
 
+    uint256 GetHashCMR() const;
+    uint256 GetHashHB() const;
     uint256 GetHash() const;
 
     int64_t GetBlockTime(int64_t nPrevBlockTime) const
@@ -149,7 +178,37 @@ public:
 
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action) {
+        int nVersion = s.GetVersion();
         READWRITE(*(CBlockHeader*)this);
+        if (nVersion & SERIALIZE_BLOCK_DUMMY) {
+            assert(!ser_action.ForRead());
+            std::vector<unsigned char> coinbaseDummy;
+            const CScript serHeight = CScript() << nHeight;
+            const uint8_t nLenToken = (serHeight.size() + 33 + vchNonceC3.size());
+            const uint256 hashCMR = GetHashCMR();
+            coinbaseDummy.resize(nLenToken + 1);
+            memcpy(&coinbaseDummy[0], &serHeight[0], serHeight.size());
+            coinbaseDummy[serHeight.size()] = (nDeploymentHard >> 24);
+            memcpy(&coinbaseDummy[serHeight.size() + 1], &hashCMR, 32);
+            memcpy(&coinbaseDummy[serHeight.size() + 33], &vchNonceC3[0], vchNonceC3.size());
+            coinbaseDummy.back() = nLenToken;
+            CMutableTransaction coinbaseTxDummy;
+            coinbaseTxDummy.nVersion = 0x77777777;
+            coinbaseTxDummy.vin.resize(1);
+            coinbaseTxDummy.vin[0].prevout.SetNull();
+            coinbaseTxDummy.vin[0].nSequence = 0;
+            for (int i = 3; i >= 0; i--) {
+                coinbaseTxDummy.vin[0].nSequence |= (uint32_t(coinbaseDummy.back()) << (i * 8));
+                coinbaseDummy.pop_back();
+            }
+            coinbaseTxDummy.vin[0].scriptSig = CScript(coinbaseDummy.begin(), coinbaseDummy.end());
+            coinbaseTxDummy.vout.resize(1);
+            coinbaseTxDummy.vout[0].scriptPubKey = CScript();
+            coinbaseTxDummy.vout[0].nValue = 0;
+            coinbaseTxDummy.nLockTime = 0;
+            vtx.resize(1);
+            vtx[0] = MakeTransactionRef(std::move(coinbaseTxDummy));
+        }
         READWRITE(vtx);
     }
 
@@ -163,12 +222,22 @@ public:
     CBlockHeader GetBlockHeader() const
     {
         CBlockHeader block;
+        block.nHeight        = nHeight;
         block.nDeploymentSoft = nDeploymentSoft;
+        block.nDeploymentHard = nDeploymentHard;
         block.hashPrevBlock  = hashPrevBlock;
-        block.hashMerkleRoot = hashMerkleRoot;
         block.nTTime         = nTTime;
         block.nBits          = nBits;
         block.nNonce         = nNonce;
+        block.nNonceC2       = nNonceC2;
+        block.vchNonceC3     = vchNonceC3;
+        block.hashMerkleRoot = hashMerkleRoot;
+        block.hashMerkleRootWitnesses = hashMerkleRootWitnesses;
+        block.nTxsBytes      = nTxsBytes;
+        block.nTxsWeight       = nTxsWeight;
+        block.nTxsSigops     = nTxsSigops;
+        block.nTxsCount      = nTxsCount;
+        block.vhashCMTBranches = vhashCMTBranches;
         return block;
     }
 
