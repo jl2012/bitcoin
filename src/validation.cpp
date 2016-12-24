@@ -2938,6 +2938,13 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
     if (nBlockTime > nAdjustedTime + 2 * 60 * 60)
         return state.Invalid(false, REJECT_INVALID, "time-too-new", "block timestamp too far in the future");
 
+    // Check hardfork specific header fields
+    if (nHeight >= HARDFORK_HEIGHT) {
+        if (block.nHeight != nHeight)
+            return state.DoS(100, false, REJECT_INVALID, "bad-height", false, "incorrect height");
+        return true;
+    }
+
     // Reject outdated version blocks when 95% (75% on testnet) of the network has upgraded:
     // check for version 2, 3 and 4 upgrades
     if((block.nDeploymentSoft < 2 && nHeight >= consensusParams.BIP34Height) ||
