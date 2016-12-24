@@ -2765,6 +2765,18 @@ bool CheckBlockHeader(const CBlockHeader& block, CValidationState& state, const 
     if (fCheckPOW && !CheckProofOfWork(block.GetHash(), block.nBits, consensusParams))
         return state.DoS(50, false, REJECT_INVALID, "high-hash", false, "proof of work failed");
 
+    // Check hardfork specific header fields
+    if (block.nHeight >= HARDFORK_HEIGHT) {
+        // nNonceC2 is the original block nVersion. This ensures backward compatibility with BIP65 (nVersion >=4)
+        if ((block.nNonceC2 & 0xff000000) != 0x60000000)
+            return state.DoS(100, false, REJECT_INVALID, "bad-class-2-nonce", false, "incorrect class-2 nonce header");
+        CScript expect = CScript() << block.nHeight;
+        // 100 (legacy coinbase max size) + 4 (legacy nSequence) - 1 (MM hardfork deployment bitfield) - 32 (Hash CMR) - 1 (length for midstate compression) = 70
+        if (block.vchNonceC3.size() > (70 - expect.size()))
+            return state.DoS(100, false, REJECT_INVALID, "bad-class-3-nonce", false, "class-3 nonce size too big");
+        return true;
+    }
+
     // This field used to be used as a signed version number, which made the high bit invalid
     if (block.nDeploymentSoft > 0x7fffffff) {
         return state.DoS(0, false, REJECT_INVALID, "bad-version", false, "softfork deployment field has high bit set");
