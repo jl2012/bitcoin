@@ -135,8 +135,9 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 
     // Add dummy coinbase tx as first transaction
     pblock->vtx.emplace_back();
-    pblocktemplate->vTxFees.push_back(-1); // updated at end
+    pblocktemplate->vTxFees.push_back(0); // updated at end
     pblocktemplate->vTxSigOpsCost.push_back(-1); // updated at end
+    pblocktemplate->vTxWeight.push_back(-1);
 
     LOCK2(cs_main, mempool.cs);
     CBlockIndex* pindexPrev = chainActive.Tip();
@@ -180,7 +181,6 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     coinbaseTx.vin[0].scriptSig = CScript() << nHeight << OP_0;
     pblock->vtx[0] = MakeTransactionRef(std::move(coinbaseTx));
     pblocktemplate->vchCoinbaseCommitment = GenerateCoinbaseCommitment(*pblock, pindexPrev, chainparams.GetConsensus());
-    pblocktemplate->vTxFees[0] = -nFees;
 
     uint64_t nSerializeSize = GetSerializeSize(*pblock, SER_NETWORK, PROTOCOL_VERSION);
     LogPrintf("CreateNewBlock(): total size: %u block weight: %u txs: %u fees: %ld sigops %d\n", nSerializeSize, GetBlockWeight(*pblock), nBlockTx, nFees, nBlockSigOpsCost);
@@ -190,7 +190,16 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     UpdateTime(pblock, chainparams.GetConsensus(), pindexPrev);
     pblock->nBits          = GetNextWorkRequired(pindexPrev, pblock, chainparams.GetConsensus());
     pblock->nNonce         = 0;
+    pblock->hashMerkleRootWitnesses = BlockWitnessMerkleRoot(*pblock, NULL, true);
+    pblock->hashMerkleRoot = BlockMerkleRoot(*pblock);
+    pblocktemplate->vTxWeight[0] = GetTransactionSizeCost(*pblock->vtx[0]);
+    pblock->hashMerkleSumRoot = BlockMerkleSumRoot(*pblock, pblocktemplate->vTxFees, pblocktemplate->vTxWeight);
     pblocktemplate->vTxSigOpsCost[0] = WITNESS_SCALE_FACTOR * GetLegacySigOpCount(*pblock->vtx[0]);
+    pblocktemplate->vTxFees[0] = -nFees;
+    pblock->nTxsCount = pblock->vtx.size();
+    pblock->nHeight = nHeight;
+    pblock->nNonceC2 = 0x60000000;
+    pblock->nDeploymentHard = 0;
 
     CValidationState state;
     if (!TestBlockValidity(state, chainparams, *pblock, pindexPrev, false, false)) {
@@ -315,6 +324,7 @@ void BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
     pblock->vtx.emplace_back(iter->GetSharedTx());
     pblocktemplate->vTxFees.push_back(iter->GetFee());
     pblocktemplate->vTxSigOpsCost.push_back(iter->GetSigOpCost());
+    pblocktemplate->vTxWeight.push_back(iter->GetTxWeightNew());
     if (fNeedSizeAccounting) {
         nBlockSize += ::GetSerializeSize(iter->GetTx(), SER_NETWORK, PROTOCOL_VERSION);
     }
@@ -606,5 +616,6 @@ void IncrementExtraNonce(CBlock* pblock, const CBlockIndex* pindexPrev, unsigned
     assert(txCoinbase.vin[0].scriptSig.size() <= 100);
 
     pblock->vtx[0] = MakeTransactionRef(std::move(txCoinbase));
+    pblock->hashMerkleRootWitnesses = BlockWitnessMerkleRoot(*pblock, NULL, true);
     pblock->hashMerkleRoot = BlockMerkleRoot(*pblock);
 }
