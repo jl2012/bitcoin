@@ -1808,6 +1808,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // Start enforcing HARDFORK rule
     if (pindex->nHeight >= HARDFORK_HEIGHT) {
         flags |= SCRIPT_VERIFY_HARDFORK;
+        flags |= SCRIPT_VERIFY_STRICT_SIGHASH;
     }
 
     // Start enforcing BIP68 (sequence locks) and BIP112 (CHECKSEQUENCEVERIFY) using versionbits logic.

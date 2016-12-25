@@ -107,6 +107,11 @@ enum
     //
     SCRIPT_VERIFY_WITNESS_PUBKEYTYPE = (1U << 15),
 
+    // Making OP_CODESEPARATOR and FindAndDelete invalid in non-segwit scripts
+    // Making undefined hashtype invalid in segwit and non-segwit scripts
+    //
+    SCRIPT_VERIFY_STRICT_SIGHASH = (1U << 16),
+
     // Hardfork rules
     //
     SCRIPT_VERIFY_HARDFORK = (1U << 30),
