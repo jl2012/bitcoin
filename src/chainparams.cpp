@@ -96,6 +96,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = 1479168000; // November 15th, 2016.
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = 1510704000; // November 15th, 2017.
 
+        // Disable merkle sum root validation
+        consensus.vDeployments[Consensus::DEPLOYMENT_NEWSUM].bit = 15;
+        consensus.vDeployments[Consensus::DEPLOYMENT_NEWSUM].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_NEWSUM].nTimeout = 0;
+
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x0000000000000000000000000000000000000000002cb971dd56d1c583c20f90");
 
@@ -198,6 +203,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = 1462060800; // May 1st 2016
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = 1493596800; // May 1st 2017
 
+        // Disable merkle sum root validation
+        consensus.vDeployments[Consensus::DEPLOYMENT_NEWSUM].bit = 15;
+        consensus.vDeployments[Consensus::DEPLOYMENT_NEWSUM].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_NEWSUM].nTimeout = 0;
+
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x0000000000000000000000000000000000000000000000198b4def2baa9338d6");
 
@@ -279,6 +289,9 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].bit = 1;
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = 0;
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = 999999999999ULL;
+        consensus.vDeployments[Consensus::DEPLOYMENT_NEWSUM].bit = 15;
+        consensus.vDeployments[Consensus::DEPLOYMENT_NEWSUM].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_NEWSUM].nTimeout = 999999999999ULL;
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");

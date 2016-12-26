@@ -35,4 +35,6 @@ uint256 BlockWitnessMerkleRoot(const CBlock& block, bool* mutated = NULL, bool h
  */
 std::vector<uint256> BlockMerkleBranch(const CBlock& block, uint32_t position);
 
+uint256 BlockMerkleSumRoot(const CBlock& block, std::vector<CAmount> vTxFees, std::vector<int64_t> vTxWeight);
+
 #endif

@@ -729,7 +729,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         }
 
         CTxMemPoolEntry entry(ptx, nFees, nAcceptTime, dPriority, chainActive.Height(),
-                              inChainInputValue, fSpendsCoinbase, nSigOpsCost, lp);
+                              inChainInputValue, fSpendsCoinbase, nSigOpsCost, nTxWeightNew, lp);
         unsigned int nSize = entry.GetTxSize();
 
         // Check that the transaction doesn't have an excessive number of
@@ -1681,7 +1681,7 @@ uint32_t ComputeBlockVersion(const CBlockIndex* pindexPrev, const Consensus::Par
         }
     }
 
-    return nVersion;
+    return (nVersion & 0xffff7fff);
 }
 
 /**
@@ -1872,7 +1872,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         }
 
         if (flags & SCRIPT_VERIFY_HARDFORK) {
-            nWeight += GetNewTransactionWeight(tx, view, flags);
+            vTxWeight[i] = GetNewTransactionWeight(tx, view, flags);
+            nWeight += vTxWeight[i];
             if (nWeight > MAX_BLOCK_WEIGHT * HARDFORK_SCALE_FACTOR)
                 return state.DoS(100, error("ConnectBlock(): weight limit failed"),
                                  REJECT_INVALID, "bad-blk-weight");
@@ -1891,7 +1892,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         txdata.emplace_back(tx);
         if (!tx.IsCoinBase())
         {
-            nFees += view.GetValueIn(tx)-tx.GetValueOut();
+            vTxFees[i] = view.GetValueIn(tx)-tx.GetValueOut();
+            nFees += vTxFees[i];
 
             std::vector<CScriptCheck> vChecks;
             bool fCacheResults = fJustCheck; /* Don't cache results if we're actually connecting blocks (still consult the cache, though) */
@@ -1910,6 +1912,12 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         vPos.push_back(std::make_pair(tx.GetHash(), pos));
         pos.nTxOffset += ::GetSerializeSize(tx, SER_DISK, CLIENT_VERSION);
     }
+
+    if (flags & SCRIPT_VERIFY_HARDFORK &&
+        BlockMerkleSumRoot(block, vTxFees, vTxWeight) != block.hashMerkleSumRoot &&
+        VersionBitsState(pindex->pprev, chainparams.GetConsensus(), Consensus::DEPLOYMENT_NEWSUM, versionbitscache) != THRESHOLD_ACTIVE)
+        return state.DoS(100, error("ConnectBlock(): merkle sum root mismatch"), REJECT_INVALID, "bad-merkle-sum-root-match");
+
     int64_t nTime3 = GetTimeMicros(); nTimeConnect += nTime3 - nTime2;
     LogPrint("bench", "      - Connect %u transactions: %.2fms (%.3fms/tx, %.3fms/txin) [%.2fs]\n", (unsigned)block.vtx.size(), 0.001 * (nTime3 - nTime2), 0.001 * (nTime3 - nTime2) / block.vtx.size(), nInputs <= 1 ? 0 : 0.001 * (nTime3 - nTime2) / (nInputs-1), nTimeConnect * 0.000001);
 
@@ -2110,14 +2118,21 @@ void static UpdateTip(CBlockIndex *pindexNew, const CChainParams& chainParams) {
             ThresholdState state = checker.GetStateFor(pindex, chainParams.GetConsensus(), warningcache[bit]);
             if (state == THRESHOLD_ACTIVE || state == THRESHOLD_LOCKED_IN) {
                 if (state == THRESHOLD_ACTIVE) {
-                    std::string strWarning = strprintf(_("Warning: unknown new rules activated (versionbit %i)"), bit);
+                    std::string strWarning;
+                    if (bit == 15)
+                        strWarning = strprintf(_("Warning: unknown new rules activated (versionbit %i). Verification of hashMerkleSumRoot disabled"), bit);
+                    else
+                        strWarning = strprintf(_("Warning: unknown new rules activated (versionbit %i)"), bit);
                     SetMiscWarning(strWarning);
                     if (!fWarned) {
                         AlertNotify(strWarning);
                         fWarned = true;
                     }
                 } else {
-                    warningMessages.push_back(strprintf("unknown new rules are about to activate (versionbit %i)", bit));
+                    if (bit == 15)
+                        warningMessages.push_back(strprintf("unknown new rules are about to activate (versionbit %i) and disable verification of hashMerkleSumRoot", bit));
+                    else
+                        warningMessages.push_back(strprintf("unknown new rules are about to activate (versionbit %i)", bit));
                 }
             }
         }

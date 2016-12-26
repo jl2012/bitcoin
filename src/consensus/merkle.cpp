@@ -189,3 +189,34 @@ std::vector<uint256> BlockMerkleBranch(const CBlock& block, uint32_t position)
     }
     return ComputeMerkleBranch(leaves, position);
 }
+
+uint256 BlockMerkleSumRoot(const CBlock& block, std::vector<CAmount> vTxFees, std::vector<int64_t> vTxWeight) {
+    assert(block.vtx.size());
+    assert(block.vtx.size() == vTxFees.size());
+    assert(block.vtx.size() == vTxWeight.size());
+    std::vector<uint256> leaves;
+    leaves.resize(block.vtx.size());
+    for (size_t i = 0; i < block.vtx.size(); i++) {
+        leaves[i] = block.vtx[i]->GetHash();
+    }
+    while (leaves.size() > 1) {
+        for (size_t i = 0; i < ((leaves.size() + 1) / 2); i++) {
+            if ((i + 1) * 2 <= leaves.size()) {
+                CHashWriter ss(SER_GETHASH, 0);
+                ss << leaves[i * 2] << vTxFees[i * 2] << vTxWeight[i * 2] << leaves[i * 2 + 1] << vTxFees[i * 2 + 1] << vTxWeight[i * 2 + 1];
+                leaves[i] = ss.GetHash();
+                vTxFees[i] = vTxFees[i * 2] + vTxFees[i * 2 + 1];
+                vTxWeight[i] = vTxWeight[i * 2] + vTxWeight[i * 2 + 1];
+            }
+            else {
+                vTxFees[i] = vTxFees[i * 2];
+                vTxWeight[i] = vTxWeight[i * 2];
+                leaves[i] = leaves[i * 2];
+            }
+        }
+        leaves.resize((leaves.size() + 1) / 2);
+    }
+    CHashWriter ss(SER_GETHASH, 0);
+    ss << leaves[0] << vTxFees[0] << vTxWeight[0];
+    return ss.GetHash();
+}

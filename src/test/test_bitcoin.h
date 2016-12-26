@@ -72,11 +72,12 @@ struct TestMemPoolEntryHelper
     unsigned int nHeight;
     bool spendsCoinbase;
     unsigned int sigOpCost;
+    int64_t nTxWeightNew;
     LockPoints lp;
 
     TestMemPoolEntryHelper() :
         nFee(0), nTime(0), dPriority(0.0), nHeight(1),
-        spendsCoinbase(false), sigOpCost(4) { }
+        spendsCoinbase(false), sigOpCost(4), nTxWeightNew(0) { }
     
     CTxMemPoolEntry FromTx(const CMutableTransaction &tx, CTxMemPool *pool = NULL);
     CTxMemPoolEntry FromTx(const CTransaction &tx, CTxMemPool *pool = NULL);
@@ -88,5 +89,6 @@ struct TestMemPoolEntryHelper
     TestMemPoolEntryHelper &Height(unsigned int _height) { nHeight = _height; return *this; }
     TestMemPoolEntryHelper &SpendsCoinbase(bool _flag) { spendsCoinbase = _flag; return *this; }
     TestMemPoolEntryHelper &SigOpsCost(unsigned int _sigopsCost) { sigOpCost = _sigopsCost; return *this; }
+    TestMemPoolEntryHelper &TxWeightNew(int64_t _txWeightNew) { nTxWeightNew = _txWeightNew; return *this; }
 };
 #endif
