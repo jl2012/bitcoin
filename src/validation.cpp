@@ -436,7 +436,22 @@ unsigned int GetP2SHSigOpCount(const CTransaction& tx, const CCoinsViewCache& in
 
 int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& inputs, int flags)
 {
-    int64_t nSigOps = GetLegacySigOpCount(tx) * WITNESS_SCALE_FACTOR;
+    int64_t nSigOps = 0;
+    if (flags & SCRIPT_VERIFY_HARDFORK) {
+        if (tx.IsCoinBase())
+            return nSigOps;
+        for (unsigned int i = 0; i < tx.vin.size(); i++) {
+            nSigOps += tx.vin[i].scriptSig.GetSigOpCount(true);
+            const CTxOut &prevout = inputs.GetOutputFor(tx.vin[i]);
+            if (prevout.scriptPubKey.IsPayToScriptHash())
+                nSigOps += prevout.scriptPubKey.GetSigOpCount(tx.vin[i].scriptSig);
+            else
+                nSigOps += prevout.scriptPubKey.GetSigOpCount(true);
+            nSigOps += CountWitnessSigOps(tx.vin[i].scriptSig, prevout.scriptPubKey, &tx.vin[i].scriptWitness, flags);
+        }
+        return nSigOps * SIGOP_COST_SCALE_FACTOR;
+    }
+    nSigOps = GetLegacySigOpCount(tx) * WITNESS_SCALE_FACTOR;
 
     if (tx.IsCoinBase())
         return nSigOps;
@@ -453,11 +468,13 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
     return nSigOps;
 }
 
+int64_t GetNewTransactionWeight(const CTransaction& tx, const CCoinsViewCache& inputs, int flags)
+{
+    return std::max({GetTransactionSizeCost(tx),
+                     GetTransactionSigOpCost(tx, inputs, flags | SCRIPT_VERIFY_HARDFORK)});
+}
 
-
-
-
-bool CheckTransaction(const CTransaction& tx, CValidationState &state, bool fCheckDuplicateInputs)
+bool CheckTransaction(const CTransaction& tx, CValidationState &state, const bool& hardfork, bool fCheckDuplicateInputs)
 {
     // Basic checks that don't depend on any context
     if (tx.vin.empty())
@@ -465,7 +482,9 @@ bool CheckTransaction(const CTransaction& tx, CValidationState &state, bool fChe
     if (tx.vout.empty())
         return state.DoS(10, false, REJECT_INVALID, "bad-txns-vout-empty");
     // Size limits (this doesn't take the witness into account, as that hasn't been checked for malleability)
-    if (::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS) > MAX_BLOCK_BASE_SIZE)
+    if (!hardfork && ::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS) > MAX_BLOCK_BASE_SIZE)
+        return state.DoS(100, false, REJECT_INVALID, "bad-txns-oversize");
+    if (hardfork && GetTransactionSizeCost(tx) > MAX_BLOCK_WEIGHT * HARDFORK_SCALE_FACTOR)
         return state.DoS(100, false, REJECT_INVALID, "bad-txns-oversize");
 
     // Check for negative or overflow output values
@@ -543,12 +562,14 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
                               std::vector<uint256>& vHashTxnToUncache)
 {
     const CTransaction& tx = *ptx;
+    bool hardforkEnabled = (chainActive.Tip()->nHeight + 1 < HARDFORK_HEIGHT);
+    unsigned int scriptVerifyFlags = hardforkEnabled ? STANDARD_SCRIPT_VERIFY_FLAGS : (STANDARD_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_HARDFORK);
     const uint256 hash = tx.GetHash();
     AssertLockHeld(cs_main);
     if (pfMissingInputs)
         *pfMissingInputs = false;
 
-    if (!CheckTransaction(tx, state))
+    if (!CheckTransaction(tx, state, hardforkEnabled))
         return false; // state filled in by CheckTransaction
 
     // Coinbase is only valid in a block, not as a loose transaction
@@ -684,6 +705,8 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
 
         int64_t nSigOpsCost = GetTransactionSigOpCost(tx, view, STANDARD_SCRIPT_VERIFY_FLAGS);
 
+        int64_t nTxWeightNew = GetNewTransactionWeight(tx, view, scriptVerifyFlags);
+
         CAmount nValueOut = tx.GetValueOut();
         CAmount nFees = nValueIn-nValueOut;
         // nModifiedFees includes any fee deltas from PrioritiseTransaction
@@ -714,7 +737,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         // itself can contain sigops MAX_STANDARD_TX_SIGOPS is less than
         // MAX_BLOCK_SIGOPS; we still consider this an invalid rather than
         // merely non-standard transaction.
-        if (nSigOpsCost > MAX_STANDARD_TX_SIGOPS_COST)
+        if (!hardforkEnabled && nSigOpsCost > MAX_STANDARD_TX_SIGOPS_COST)
             return state.DoS(0, false, REJECT_NONSTANDARD, "bad-txns-too-many-sigops", false,
                 strprintf("%d", nSigOpsCost));
 
@@ -908,7 +931,6 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             }
         }
 
-        unsigned int scriptVerifyFlags = STANDARD_SCRIPT_VERIFY_FLAGS;
         if (!Params().RequireStandard()) {
             scriptVerifyFlags = GetArg("-promiscuousmempoolflags", scriptVerifyFlags);
         }
@@ -1783,6 +1805,11 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         flags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
     }
 
+    // Start enforcing HARDFORK rule
+    if (pindex->nHeight >= HARDFORK_HEIGHT) {
+        flags |= SCRIPT_VERIFY_HARDFORK;
+    }
+
     // Start enforcing BIP68 (sequence locks) and BIP112 (CHECKSEQUENCEVERIFY) using versionbits logic.
     int nLockTimeFlags = 0;
     if (VersionBitsState(pindex->pprev, chainparams.GetConsensus(), Consensus::DEPLOYMENT_CSV, versionbitscache) == THRESHOLD_ACTIVE) {
@@ -1807,12 +1834,17 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     CAmount nFees = 0;
     int nInputs = 0;
     int64_t nSigOpsCost = 0;
+    int64_t nWeight = 0;
     CDiskTxPos pos(pindex->GetBlockPos(), GetSizeOfCompactSize(block.vtx.size()));
     std::vector<std::pair<uint256, CDiskTxPos> > vPos;
     vPos.reserve(block.vtx.size());
     blockundo.vtxundo.reserve(block.vtx.size() - 1);
     std::vector<PrecomputedTransactionData> txdata;
     txdata.reserve(block.vtx.size()); // Required so that pointers to individual PrecomputedTransactionData don't get invalidated
+    std::vector<CAmount> vTxFees(block.vtx.size());
+    std::vector<int64_t> vTxWeight(block.vtx.size());
+    vTxFees[0] = 0;
+
     for (unsigned int i = 0; i < block.vtx.size(); i++)
     {
         const CTransaction &tx = *(block.vtx[i]);
@@ -1839,14 +1871,22 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             }
         }
 
-        // GetTransactionSigOpCost counts 3 types of sigops:
-        // * legacy (always)
-        // * p2sh (when P2SH enabled in flags and excludes coinbase)
-        // * witness (when witness enabled in flags and excludes coinbase)
-        nSigOpsCost += GetTransactionSigOpCost(tx, view, flags);
-        if (nSigOpsCost > MAX_BLOCK_SIGOPS_COST)
-            return state.DoS(100, error("ConnectBlock(): too many sigops"),
-                             REJECT_INVALID, "bad-blk-sigops");
+        if (flags & SCRIPT_VERIFY_HARDFORK) {
+            nWeight += GetNewTransactionWeight(tx, view, flags);
+            if (nWeight > MAX_BLOCK_WEIGHT * HARDFORK_SCALE_FACTOR)
+                return state.DoS(100, error("ConnectBlock(): weight limit failed"),
+                                 REJECT_INVALID, "bad-blk-weight");
+        }
+        else {
+            // GetTransactionSigOpCost counts 3 types of sigops:
+            // * legacy (always)
+            // * p2sh (when P2SH enabled in flags and excludes coinbase)
+            // * witness (when witness enabled in flags and excludes coinbase)
+            nSigOpsCost += GetTransactionSigOpCost(tx, view, flags);
+            if (nSigOpsCost > MAX_BLOCK_SIGOPS_COST)
+                return state.DoS(100, error("ConnectBlock(): too many sigops"),
+                                 REJECT_INVALID, "bad-blk-sigops");
+        }
 
         txdata.emplace_back(tx);
         if (!tx.IsCoinBase())
@@ -2818,8 +2858,41 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
     // checks that use witness data may be performed here.
 
     // Size limits
-    if (block.vtx.empty() || block.vtx.size() > MAX_BLOCK_BASE_SIZE || ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS) > MAX_BLOCK_BASE_SIZE)
-        return state.DoS(100, false, REJECT_INVALID, "bad-blk-length", false, "size limits failed");
+    if (block.nHeight < HARDFORK_HEIGHT) {
+        if (block.vtx.empty() || block.vtx.size() > MAX_BLOCK_BASE_SIZE || ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS | SERIALIZE_BLOCK_LEGACY) > MAX_BLOCK_BASE_SIZE)
+            return state.DoS(100, false, REJECT_INVALID, "bad-blk-length", false, "size limits failed");
+
+        unsigned int nSigOps = 0;
+        for (const auto& tx : block.vtx)
+        {
+            nSigOps += GetLegacySigOpCount(*tx);
+        }
+        if (nSigOps * WITNESS_SCALE_FACTOR > MAX_BLOCK_SIGOPS_COST)
+            return state.DoS(100, false, REJECT_INVALID, "bad-blk-sigops", false, "out-of-bounds SigOpCount");
+    }
+    else {
+        if (block.vtx.empty() || block.vtx.size() * SIZE_SCALE_FACTOR * MIN_TX_SIZE > MAX_BLOCK_WEIGHT * HARDFORK_SCALE_FACTOR)
+            return state.DoS(100, false, REJECT_INVALID, "bad-blk-length", false, "size limits failed");
+        if (block.nTxsCount != block.vtx.size())
+            return state.DoS(100, false, REJECT_INVALID, "bad-blk-txs-count", false, "number of transactions mismatch");
+
+        bool malleated = false;
+        uint256 hashWitness = BlockWitnessMerkleRoot(block, &malleated, true);
+        if (block.vtx[0]->vin[0].scriptWitness.stack.size()) {
+            if (block.vtx[0]->vin[0].scriptWitness.stack.size() != 1 || block.vtx[0]->vin[0].scriptWitness.stack[0].size() > 252)
+                return state.DoS(100, false, REJECT_INVALID, "bad-coinbase-witness-size", true, strprintf("%s : invalid coinbase witness size", __func__));
+        }
+        if (hashWitness != block.hashMerkleRootWitnesses)
+            return state.DoS(100, false, REJECT_INVALID, "bad-witness-merkle-match", true, strprintf("%s : witness merkle commitment mismatch", __func__));
+
+        int64_t nSizeCost = 0;
+        for (const auto& tx : block.vtx)
+        {
+            nSizeCost += GetTransactionSizeCost(*tx);
+        }
+        if (nSizeCost > MAX_BLOCK_WEIGHT * HARDFORK_SCALE_FACTOR)
+            return state.DoS(100, false, REJECT_INVALID, "bad-blk-length", false, "size limits failed");
+    }
 
     // First transaction must be coinbase, the rest must not be
     if (block.vtx.empty() || !block.vtx[0]->IsCoinBase())
@@ -2830,17 +2903,9 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
 
     // Check transactions
     for (const auto& tx : block.vtx)
-        if (!CheckTransaction(*tx, state, false))
+        if (!CheckTransaction(*tx, state, hardforkEnabled, false))
             return state.Invalid(false, state.GetRejectCode(), state.GetRejectReason(),
                                  strprintf("Transaction check failed (tx hash %s) %s", tx->GetHash().ToString(), state.GetDebugMessage()));
-
-    unsigned int nSigOps = 0;
-    for (const auto& tx : block.vtx)
-    {
-        nSigOps += GetLegacySigOpCount(*tx);
-    }
-    if (nSigOps * WITNESS_SCALE_FACTOR > MAX_BLOCK_SIGOPS_COST)
-        return state.DoS(100, false, REJECT_INVALID, "bad-blk-sigops", false, "out-of-bounds SigOpCount");
 
     if (fCheckPOW && fCheckMerkleRoot)
         block.fChecked = true;
@@ -3014,13 +3079,8 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const Co
             fHaveWitness = true;
         }
     }
-    else if (nHeight >= HARDFORK_HEIGHT) {
-        bool malleated = false;
-        uint256 hashWitness = BlockWitnessMerkleRoot(block, &malleated, true);
-        if (hashWitness != block.hashMerkleRootWitnesses)
-            return state.DoS(100, false, REJECT_INVALID, "bad-witness-merkle-match", true, strprintf("%s : witness merkle commitment mismatch", __func__));
+    else if (nHeight >= HARDFORK_HEIGHT)
         fHaveWitness = true;
-    }
 
     // No witness data is allowed in blocks that don't commit to witness data, as this would otherwise leave room for spam
     if (!fHaveWitness) {
@@ -3037,7 +3097,7 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const Co
     // large by filling up the coinbase witness, which doesn't change
     // the block hash, so we couldn't mark the block as permanently
     // failed).
-    if (GetBlockWeight(block) > MAX_BLOCK_WEIGHT) {
+    if (nHeight < HARDFORK_HEIGHT && GetBlockWeight(block) > MAX_BLOCK_WEIGHT) {
         return state.DoS(100, false, REJECT_INVALID, "bad-blk-weight", false, strprintf("%s : weight limit failed", __func__));
     }
 
