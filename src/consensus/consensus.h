@@ -22,6 +22,8 @@ static const int COINBASE_MATURITY = 100;
 static const unsigned int HARDFORK_SCALE_FACTOR = 2;
 /** SigOp cost scaling factor (network rule) */
 static const unsigned int SIGOP_COST_SCALE_FACTOR = 50;
+/** Sighash cost scaling factor (network rule) */
+static const unsigned int SIGHASH_COST_SCALE_FACTOR = 90;
 
 /** Flags for nSequence and nLockTime locks */
 enum {

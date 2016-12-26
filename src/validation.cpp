@@ -468,10 +468,29 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
     return nSigOps;
 }
 
+unsigned int GetTransactionLegacySigHashOpCount(const CTransaction& tx, const CCoinsViewCache& inputs)
+{
+    unsigned int nSigHashOps = 0;
+
+    if (tx.IsCoinBase())
+        return nSigHashOps;
+
+    for (unsigned int i = start; i < tx.vin.size(); i++) {
+        nSigHashOps += tx.vin[i].scriptSig.GetSigHashOpCount();
+        const CTxOut &prevout = inputs.GetOutputFor(tx.vin[i]);
+        nSigHashOps += prevout.scriptPubKey.GetSigHashOpCount();
+        if (prevout.scriptPubKey.IsPayToScriptHash())
+            nSigHashOps += prevout.scriptPubKey.GetSigHashOpCount(tx.vin[i].scriptSig);
+    }
+
+    return nSigHashOps;
+}
+
 int64_t GetNewTransactionWeight(const CTransaction& tx, const CCoinsViewCache& inputs, int flags)
 {
-    return std::max({GetTransactionSizeCost(tx),
-                     GetTransactionSigOpCost(tx, inputs, flags | SCRIPT_VERIFY_HARDFORK)});
+    return std::max({GetTransactionSizeCost(tx) * SIGHASH_COST_SCALE_FACTOR,
+                     GetTransactionSigOpCost(tx, inputs, flags | SCRIPT_VERIFY_HARDFORK) * SIGHASH_COST_SCALE_FACTOR,
+                     GetTransactionLegacySigHashOpCount(tx, inputs) * GetTransactionHashableSize(tx)});
 }
 
 bool CheckTransaction(const CTransaction& tx, CValidationState &state, const bool& hardfork, bool fCheckDuplicateInputs)
@@ -1875,7 +1894,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         if (flags & SCRIPT_VERIFY_HARDFORK) {
             vTxWeight[i] = GetNewTransactionWeight(tx, view, flags);
             nWeight += vTxWeight[i];
-            if (nWeight > MAX_BLOCK_WEIGHT * HARDFORK_SCALE_FACTOR)
+            if (nWeight > MAX_BLOCK_WEIGHT * HARDFORK_SCALE_FACTOR * SIGHASH_COST_SCALE_FACTOR)
                 return state.DoS(100, error("ConnectBlock(): weight limit failed"),
                                  REJECT_INVALID, "bad-blk-weight");
         }

@@ -460,4 +460,7 @@ template <typename Tx> static inline CTransactionRef MakeTransactionRef(Tx&& txI
 int64_t GetTransactionWeight(const CTransaction &tx);
 int64_t GetTransactionSizeCost(const CTransaction &tx);
 
+/** Compute the transaction hashable size = transaction size - scriptSig size */
+int64_t GetTransactionHashableSize(const CTransaction& tx);
+
 #endif // BITCOIN_PRIMITIVES_TRANSACTION_H

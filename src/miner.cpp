@@ -192,7 +192,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     pblock->nNonce         = 0;
     pblock->hashMerkleRootWitnesses = BlockWitnessMerkleRoot(*pblock, NULL, true);
     pblock->hashMerkleRoot = BlockMerkleRoot(*pblock);
-    pblocktemplate->vTxWeight[0] = GetTransactionSizeCost(*pblock->vtx[0]);
+    pblocktemplate->vTxWeight[0] = GetTransactionSizeCost(*pblock->vtx[0]) * SIGHASH_COST_SCALE_FACTOR;
     pblock->hashMerkleSumRoot = BlockMerkleSumRoot(*pblock, pblocktemplate->vTxFees, pblocktemplate->vTxWeight);
     pblocktemplate->vTxSigOpsCost[0] = WITNESS_SCALE_FACTOR * GetLegacySigOpCount(*pblock->vtx[0]);
     pblocktemplate->vTxFees[0] = -nFees;
