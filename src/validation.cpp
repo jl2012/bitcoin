@@ -1184,14 +1184,25 @@ void CheckForkWarningConditions()
         }
         if (pindexBestForkTip && pindexBestForkBase)
         {
-            LogPrintf("%s: Warning: Large valid fork found\n  forking the chain at height %d (%s)\n  lasting to height %d (%s).\nChain state database corruption likely.\n", __func__,
+            LogPrintf("%s: Warning: Large valid fork found\n  forking the chain at height %d (%s)\n  lasting to height %d (%s).\nPayments confirmed after the forking block may be unreliable.\n Our chain state database may be corrupted, or some miners may be experiencing issues.\n", __func__,
                    pindexBestForkBase->nHeight, pindexBestForkBase->phashBlock->ToString(),
                    pindexBestForkTip->nHeight, pindexBestForkTip->phashBlock->ToString());
             SetfLargeWorkForkFound(true);
         }
         else
         {
-            LogPrintf("%s: Warning: Found invalid chain at least ~6 blocks longer than our best chain.\nChain state database corruption likely.\n", __func__);
+            CBlockIndex* plonger = pindexBestInvalid;
+            CBlockIndex* pfork = chainActive.Tip();
+            while (pfork && pfork != plonger)
+            {
+                while (plonger && plonger->nHeight > pfork->nHeight)
+                    plonger = plonger->pprev;
+                if (pfork == plonger)
+                    break;
+                pfork = pfork->pprev;
+            }
+            unsigned int nForkLength = ((pindexBestInvalid->nChainWork - chainActive.Tip()->nChainWork) / GetBlockProof(*chainActive.Tip())).getdouble();
+            LogPrintf("%s: Warning: Found invalid chain at least ~%d blocks longer than our best chain.\n Payments confirmed after the forking block at height %d (%s) may be unreliable.\n Our chain state database may be corrupted, or unknown network rules may be accidentally or intentionally enforced by a majority of miners.\n Be wary when being suggested to upgrade.\n", __func__, nForkLength, pfork->nHeight, pfork->phashBlock->ToString());
             SetfLargeWorkInvalidChainFound(true);
         }
     }
