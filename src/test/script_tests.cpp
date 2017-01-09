@@ -1405,6 +1405,11 @@ BOOST_AUTO_TEST_CASE(script_FindAndDelete)
     BOOST_CHECK_EQUAL(s.FindAndDelete(d), 2);
     BOOST_CHECK(s == expect);
 
+    s = ScriptFromHex("6a");
+    d = ScriptFromHex("01");
+    expect = ScriptFromHex("016a");;
+    BOOST_CHECK(d + s == expect);
+
     // Byte sequence that spans multiple opcodes:
     s = ScriptFromHex("02feed5169"); // PUSH(0xfeed) OP_1 OP_VERIFY
     d = ScriptFromHex("feed51");

@@ -52,7 +52,7 @@ enum
 {
     SCRIPT_VERIFY_NONE      = 0,
 
-    // Evaluate P2SH subscripts (softfork safe, BIP16).
+    // Evaluate P2SH subscripts (softork safe, BIP16).
     SCRIPT_VERIFY_P2SH      = (1U << 0),
 
     // Passing a non-strict-DER signature or one with undefined hashtype to a checksig operation causes script failure.
