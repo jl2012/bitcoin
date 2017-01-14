@@ -1201,6 +1201,17 @@ CAmount GetBlockSubsidy(int nHeight, const Consensus::Params& consensusParams)
     CAmount nSubsidy = 50 * COIN;
     // Subsidy is cut in half every 210,000 blocks which will occur approximately every 4 years.
     nSubsidy >>= halvings;
+
+    if (nHeight >= HARDFORK_HEIGHT) {
+        int nMod = nHeight % consensusParams.nSubsidyHalvingInterval;
+        unsigned int nPowTargetBlock = consensusParams.nPowTargetTimespan / consensusParams.nPowTargetSpacing;
+        if (nMod >= consensusParams.nSubsidyHalvingInterval - nPowTargetBlock)
+            nSubsidy -= (nSubsidy >> 2);
+        else if (nMod < nPowTargetBlock && halvings > 0) {
+            CAmount nLastSubsidy = (50 * COIN) >> (halvings - 1);
+            nSubsidy += (nLastSubsidy >> 2);
+        }
+    }
     return nSubsidy;
 }
 
