@@ -10,7 +10,7 @@
 #include "serialize.h"
 #include "uint256.h"
 
-static const uint32_t HARDFORK_HEIGHT = 4194304;  // 2088 Q1
+static const uint32_t HARDFORK_HEIGHT = 200;  // 2088 Q1
 static const int SERIALIZE_BLOCK_LEGACY = 0x04000000;
 static const int SERIALIZE_BLOCK_DUMMY = 0x02000000;
 
