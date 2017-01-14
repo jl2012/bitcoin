@@ -87,7 +87,7 @@ UniValue blockheaderToJSON(const CBlockIndex* blockindex)
     result.push_back(Pair("version", uint64_t(blockindex->nDeploymentSoft)));
     result.push_back(Pair("versionHex", strprintf("%08x", blockindex->nDeploymentSoft)));
     result.push_back(Pair("merkleroot", blockindex->hashMerkleRoot.GetHex()));
-    result.push_back(Pair("time", (int64_t)blockindex->nTime));
+    result.push_back(Pair("time", blockindex->GetBlockTime()));
     result.push_back(Pair("mediantime", (int64_t)blockindex->GetMedianTimePast()));
     result.push_back(Pair("nonce", (uint64_t)blockindex->nNonce));
     result.push_back(Pair("bits", strprintf("%08x", blockindex->nBits)));
@@ -131,7 +131,7 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
             txs.push_back(tx->GetHash().GetHex());
     }
     result.push_back(Pair("tx", txs));
-    result.push_back(Pair("time", block.GetBlockTime()));
+    result.push_back(Pair("time", blockindex->GetBlockTime()));
     result.push_back(Pair("mediantime", (int64_t)blockindex->GetMedianTimePast()));
     result.push_back(Pair("nonce", (uint64_t)block.nNonce));
     result.push_back(Pair("bits", strprintf("%08x", block.nBits)));

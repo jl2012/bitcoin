@@ -10,6 +10,22 @@
 #include "utilstrencodings.h"
 #include "crypto/common.h"
 
+int64_t GetBlockTime(uint32_t nTTime, int64_t nPrevBlockTime)
+{
+    const int32_t nPrevBlockHTime = (nPrevBlockTime >> 32);
+    const uint32_t nPrevBlockTTime = (nPrevBlockTime & 0xffffffff);
+    int32_t nHTime;
+    if (nPrevBlockTTime >= 0xe0000000 && nTTime < 0x20000000) {
+        // ~388 days allowed before and after the overflow point
+        nHTime = nPrevBlockHTime + 1;
+    } else if (nPrevBlockTTime < 0x20000000 && nTTime >= 0xe0000000 && nPrevBlockHTime > 0) {
+        nHTime = nPrevBlockHTime - 1;
+    } else {
+        nHTime = nPrevBlockHTime;
+    }
+    return (int64_t(nHTime) << 32) | nTTime;
+}
+
 uint256 CBlockHeader::GetHash() const
 {
     return SerializeHash(*this);
@@ -23,7 +39,7 @@ std::string CBlock::ToString() const
         nDeploymentSoft,
         hashPrevBlock.ToString(),
         hashMerkleRoot.ToString(),
-        nTime, nBits, nNonce,
+        nTTime, nBits, nNonce,
         vtx.size());
     for (unsigned int i = 0; i < vtx.size(); i++)
     {

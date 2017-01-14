@@ -197,9 +197,12 @@ public:
     //! block header
     uint32_t nDeploymentSoft;
     uint256 hashMerkleRoot;
-    unsigned int nTime;
+    uint32_t nTTime;
     unsigned int nBits;
     unsigned int nNonce;
+
+    //! (memory only) High 31 bits of timestamp
+    int32_t nHTime;
 
     //! (memory only) Sequential id assigned to distinguish order in which blocks are received.
     int32_t nSequenceId;
@@ -225,7 +228,8 @@ public:
 
         nDeploymentSoft = 0;
         hashMerkleRoot = uint256();
-        nTime          = 0;
+        nHTime         = -1;
+        nTTime         = 0;
         nBits          = 0;
         nNonce         = 0;
     }
@@ -241,13 +245,16 @@ public:
 
         nDeploymentSoft = block.nDeploymentSoft;
         hashMerkleRoot = block.hashMerkleRoot;
-        nTime          = block.nTime;
+        nHTime         = -1;
+        nTTime         = block.nTTime;
         nBits          = block.nBits;
         nNonce         = block.nNonce;
     }
 
     void InitialiseFromPrev() {
+        assert(pprev || !nHeight);
         nChainWork = (pprev ? pprev->nChainWork : 0) + GetBlockProof(*this);
+        nHTime = ::GetBlockTime(nTTime, (pprev ? pprev->GetBlockTime() : 0)) >> 32;
     }
 
     CDiskBlockPos GetBlockPos() const {
@@ -275,7 +282,7 @@ public:
         if (pprev)
             block.hashPrevBlock = pprev->GetBlockHash();
         block.hashMerkleRoot = hashMerkleRoot;
-        block.nTime          = nTime;
+        block.nTTime         = nTTime;
         block.nBits          = nBits;
         block.nNonce         = nNonce;
         return block;
@@ -288,7 +295,8 @@ public:
 
     int64_t GetBlockTime() const
     {
-        return (int64_t)nTime;
+        assert(nHTime >= 0);
+        return (int64_t(nHTime) << 32) | nTTime;
     }
 
     int64_t GetBlockTimeMax() const
@@ -390,7 +398,7 @@ public:
         READWRITE(nDeploymentSoft);
         READWRITE(hashPrev);
         READWRITE(hashMerkleRoot);
-        READWRITE(nTime);
+        READWRITE(nTTime);
         READWRITE(nBits);
         READWRITE(nNonce);
     }
@@ -401,7 +409,7 @@ public:
         block.nDeploymentSoft = nDeploymentSoft;
         block.hashPrevBlock   = hashPrev;
         block.hashMerkleRoot  = hashMerkleRoot;
-        block.nTime           = nTime;
+        block.nTTime          = nTTime;
         block.nBits           = nBits;
         block.nNonce          = nNonce;
         return block.GetHash();

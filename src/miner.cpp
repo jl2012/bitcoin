@@ -61,11 +61,11 @@ public:
 
 int64_t UpdateTime(CBlockHeader* pblock, const Consensus::Params& consensusParams, const CBlockIndex* pindexPrev)
 {
-    int64_t nOldTime = pblock->nTime;
+    int64_t nOldTime = pblock->GetBlockTime(pindexPrev->GetBlockTime());
     int64_t nNewTime = std::max(pindexPrev->GetMedianTimePast()+1, GetAdjustedTime());
 
     if (nOldTime < nNewTime)
-        pblock->nTime = nNewTime;
+        pblock->nTTime = nNewTime;
 
     // Updating time can change work required on testnet:
     if (consensusParams.fPowAllowMinDifficultyBlocks)
@@ -148,12 +148,12 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     if (chainparams.MineBlocksOnDemand())
         pblock->nDeploymentSoft = GetArg("-blockversion", pblock->nDeploymentSoft);
 
-    pblock->nTime = GetAdjustedTime();
+    pblock->nTTime = GetAdjustedTime();
     const int64_t nMedianTimePast = pindexPrev->GetMedianTimePast();
 
     nLockTimeCutoff = (STANDARD_LOCKTIME_VERIFY_FLAGS & LOCKTIME_MEDIAN_TIME_PAST)
                        ? nMedianTimePast
-                       : pblock->GetBlockTime();
+                       : pblock->GetBlockTime(pindexPrev->GetBlockTime());
 
     // Decide whether to include witness transactions
     // This is only needed in case the witness softfork activation is reverted

@@ -110,21 +110,22 @@ BOOST_AUTO_TEST_CASE(findearliestatleast_test)
         vBlocksMain[i].pprev = i ? &vBlocksMain[i - 1] : NULL;
         vBlocksMain[i].phashBlock = &vHashMain[i];
         vBlocksMain[i].BuildSkip();
+        vBlocksMain[i].nHTime = 0;
         if (i < 10) {
-            vBlocksMain[i].nTime = i;
+            vBlocksMain[i].nTTime = i;
             vBlocksMain[i].nTimeMax = i;
         } else {
             // randomly choose something in the range [MTP, MTP*2]
             int64_t medianTimePast = vBlocksMain[i].GetMedianTimePast();
             int r = insecure_rand() % medianTimePast;
-            vBlocksMain[i].nTime = r + medianTimePast;
-            vBlocksMain[i].nTimeMax = std::max(vBlocksMain[i].nTime, vBlocksMain[i-1].nTimeMax);
+            vBlocksMain[i].nTTime = r + medianTimePast;
+            vBlocksMain[i].nTimeMax = std::max(vBlocksMain[i].nTTime, vBlocksMain[i-1].nTimeMax);
         }
     }
     // Check that we set nTimeMax up correctly.
     unsigned int curTimeMax = 0;
     for (unsigned int i=0; i<vBlocksMain.size(); ++i) {
-        curTimeMax = std::max(curTimeMax, vBlocksMain[i].nTime);
+        curTimeMax = std::max(curTimeMax, vBlocksMain[i].nTTime);
         BOOST_CHECK(curTimeMax == vBlocksMain[i].nTimeMax);
     }
 
@@ -136,7 +137,7 @@ BOOST_AUTO_TEST_CASE(findearliestatleast_test)
     for (unsigned int i=0; i<10000; ++i) {
         // Pick a random element in vBlocksMain.
         int r = insecure_rand() % vBlocksMain.size();
-        int64_t test_time = vBlocksMain[r].nTime;
+        int64_t test_time = vBlocksMain[r].nTTime;
         CBlockIndex *ret = chain.FindEarliestAtLeast(test_time);
         BOOST_CHECK(ret->nTimeMax >= test_time);
         BOOST_CHECK((ret->pprev==NULL) || ret->pprev->nTimeMax < test_time);

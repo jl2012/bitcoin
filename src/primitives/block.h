@@ -10,6 +10,8 @@
 #include "serialize.h"
 #include "uint256.h"
 
+int64_t GetBlockTime(uint32_t nBlockTTime, int64_t nPrevBlockTime);
+
 /** Nodes collect new transactions into a block, hash them into a hash tree,
  * and scan through nonce values to make the block's hash satisfy proof-of-work
  * requirements.  When they solve the proof-of-work, they broadcast the block
@@ -24,7 +26,7 @@ public:
     uint32_t nDeploymentSoft;
     uint256 hashPrevBlock;
     uint256 hashMerkleRoot;
-    uint32_t nTime;
+    uint32_t nTTime;
     uint32_t nBits;
     uint32_t nNonce;
 
@@ -40,7 +42,7 @@ public:
         READWRITE(nDeploymentSoft);
         READWRITE(hashPrevBlock);
         READWRITE(hashMerkleRoot);
-        READWRITE(nTime);
+        READWRITE(nTTime);
         READWRITE(nBits);
         READWRITE(nNonce);
     }
@@ -50,7 +52,7 @@ public:
         nDeploymentSoft = 0;
         hashPrevBlock.SetNull();
         hashMerkleRoot.SetNull();
-        nTime = 0;
+        nTTime = 0;
         nBits = 0;
         nNonce = 0;
     }
@@ -62,9 +64,9 @@ public:
 
     uint256 GetHash() const;
 
-    int64_t GetBlockTime() const
+    int64_t GetBlockTime(int64_t nPrevBlockTime) const
     {
-        return (int64_t)nTime;
+        return ::GetBlockTime(nTTime, nPrevBlockTime);
     }
 };
 
@@ -110,7 +112,7 @@ public:
         block.nDeploymentSoft = nDeploymentSoft;
         block.hashPrevBlock  = hashPrevBlock;
         block.hashMerkleRoot = hashMerkleRoot;
-        block.nTime          = nTime;
+        block.nTTime         = nTTime;
         block.nBits          = nBits;
         block.nNonce         = nNonce;
         return block;
