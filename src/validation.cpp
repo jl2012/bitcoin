@@ -473,6 +473,9 @@ unsigned int GetTransactionLegacySigHashOpCount(const CTransaction& tx, const CC
 {
     unsigned int nSigHashOps = 0;
 
+    if ((tx.nVersion & 0x00ffffff) > 2)
+        return nSigHashOps;
+
     unsigned int start = 0;
     if (tx.IsCoinBase(true))
         start = 1;
@@ -532,6 +535,9 @@ bool CheckTransaction(const CTransaction& tx, CValidationState &state, const boo
     }
 
     if (hardfork) {
+        if ((tx.nVersion & 0xff000000) && !(tx.nVersion & 0x02000000))
+            return state.DoS(10, false, REJECT_INVALID, "unknown-txns-hardfork-version");
+
         unsigned int start = 0;
         if (tx.IsCoinBase(true)) {
             if (tx.vin[0].scriptSig.size() > 252)

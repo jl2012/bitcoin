@@ -20,7 +20,7 @@ typedef std::vector<unsigned char> valtype;
 
 TransactionSignatureCreator::TransactionSignatureCreator(const CKeyStore* keystoreIn, const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, int nHashTypeIn) : BaseSignatureCreator(keystoreIn), txTo(txToIn), nIn(nInIn), nHashType(nHashTypeIn), amount(amountIn), checker(txTo, nIn, amountIn) {}
 
-bool TransactionSignatureCreator::CreateSig(std::vector<unsigned char>& vchSig, const CKeyID& address, const CScript& scriptCode, SigVersion sigversion) const
+bool TransactionSignatureCreator::CreateSig(std::vector<unsigned char>& vchSig, const CKeyID& address, const CScript& scriptCode, unsigned int sigversion) const
 {
     CKey key;
     if (!keystore->GetKey(address, key))
@@ -37,7 +37,7 @@ bool TransactionSignatureCreator::CreateSig(std::vector<unsigned char>& vchSig, 
     return true;
 }
 
-static bool Sign1(const CKeyID& address, const BaseSignatureCreator& creator, const CScript& scriptCode, std::vector<valtype>& ret, SigVersion sigversion)
+static bool Sign1(const CKeyID& address, const BaseSignatureCreator& creator, const CScript& scriptCode, std::vector<valtype>& ret, unsigned int sigversion)
 {
     vector<unsigned char> vchSig;
     if (!creator.CreateSig(vchSig, address, scriptCode, sigversion))
@@ -46,7 +46,7 @@ static bool Sign1(const CKeyID& address, const BaseSignatureCreator& creator, co
     return true;
 }
 
-static bool SignN(const vector<valtype>& multisigdata, const BaseSignatureCreator& creator, const CScript& scriptCode, std::vector<valtype>& ret, SigVersion sigversion)
+static bool SignN(const vector<valtype>& multisigdata, const BaseSignatureCreator& creator, const CScript& scriptCode, std::vector<valtype>& ret, unsigned int sigversion)
 {
     int nSigned = 0;
     int nRequired = multisigdata.front()[0];
@@ -67,7 +67,7 @@ static bool SignN(const vector<valtype>& multisigdata, const BaseSignatureCreato
  * Returns false if scriptPubKey could not be completely satisfied.
  */
 static bool SignStep(const BaseSignatureCreator& creator, const CScript& scriptPubKey,
-                     std::vector<valtype>& ret, txnouttype& whichTypeRet, SigVersion sigversion)
+                     std::vector<valtype>& ret, txnouttype& whichTypeRet, unsigned int sigversion)
 {
     CScript scriptRet;
     uint160 h160;
@@ -230,7 +230,7 @@ bool SignSignature(const CKeyStore &keystore, const CTransaction& txFrom, CMutab
 
 static vector<valtype> CombineMultisig(const CScript& scriptPubKey, const BaseSignatureChecker& checker,
                                const vector<valtype>& vSolutions,
-                               const vector<valtype>& sigs1, const vector<valtype>& sigs2, SigVersion sigversion)
+                               const vector<valtype>& sigs1, const vector<valtype>& sigs2, unsigned int sigversion)
 {
     // Combine all the signatures we've got:
     set<valtype> allsigs;
@@ -307,7 +307,7 @@ struct Stacks
 
 static Stacks CombineSignatures(const CScript& scriptPubKey, const BaseSignatureChecker& checker,
                                  const txnouttype txType, const vector<valtype>& vSolutions,
-                                 Stacks sigs1, Stacks sigs2, SigVersion sigversion)
+                                 Stacks sigs1, Stacks sigs2, unsigned int sigversion)
 {
     switch (txType)
     {
@@ -396,7 +396,7 @@ class DummySignatureChecker : public BaseSignatureChecker
 public:
     DummySignatureChecker() {}
 
-    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
+    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, unsigned int sigversion) const
     {
         return true;
     }
@@ -409,7 +409,7 @@ const BaseSignatureChecker& DummySignatureCreator::Checker() const
     return dummyChecker;
 }
 
-bool DummySignatureCreator::CreateSig(std::vector<unsigned char>& vchSig, const CKeyID& keyid, const CScript& scriptCode, SigVersion sigversion) const
+bool DummySignatureCreator::CreateSig(std::vector<unsigned char>& vchSig, const CKeyID& keyid, const CScript& scriptCode, unsigned int sigversion) const
 {
     // Create a dummy signature that is a valid DER-encoding
     vchSig.assign(72, '\000');
