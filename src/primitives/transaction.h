@@ -126,6 +126,7 @@ public:
     }
 
     std::string ToString() const;
+    bool IsCoinbase() const { return prevout.n == (uint32_t) -1; }
 };
 
 /** An output of a transaction.  It contains the public key that the next input
@@ -376,8 +377,10 @@ public:
      */
     unsigned int GetTotalSize() const;
 
-    bool IsCoinBase() const
+    bool IsCoinBase(bool hardfork) const
     {
+        if (hardfork)
+            return (vin.size() > 0 && vin[0].IsCoinbase());
         return (vin.size() == 1 && vin[0].prevout.IsNull());
     }
 

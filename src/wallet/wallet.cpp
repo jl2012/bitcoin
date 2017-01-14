@@ -549,11 +549,11 @@ void CWallet::AddToSpends(const uint256& wtxid)
 {
     assert(mapWallet.count(wtxid));
     CWalletTx& thisTx = mapWallet[wtxid];
-    if (thisTx.IsCoinBase()) // Coinbases don't spend anything!
-        return;
 
-    BOOST_FOREACH(const CTxIn& txin, thisTx.tx->vin)
-        AddToSpends(txin.prevout, wtxid);
+    BOOST_FOREACH(const CTxIn& txin, thisTx.tx->vin) {
+        if (!txin.IsCoinbase())
+            AddToSpends(txin.prevout, wtxid);
+    }
 }
 
 bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)

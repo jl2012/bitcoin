@@ -122,10 +122,11 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnes
 
 bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
 {
-    if (tx.IsCoinBase())
-        return true; // Coinbases don't use vin normally
+    unsigned int start = 0;
+    if (tx.IsCoinBase(true))
+        start = 1;
 
-    for (unsigned int i = 0; i < tx.vin.size(); i++)
+    for (unsigned int i = start; i < tx.vin.size(); i++)
     {
         const CTxOut& prev = mapInputs.GetOutputFor(tx.vin[i]);
 
@@ -156,10 +157,11 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
 
 bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
 {
-    if (tx.IsCoinBase())
-        return true; // Coinbases are skipped
+    unsigned int start = 0;
+    if (tx.IsCoinBase(true))
+        start = 1;
 
-    for (unsigned int i = 0; i < tx.vin.size(); i++)
+    for (unsigned int i = start; i < tx.vin.size(); i++)
     {
         // We don't care if witness for this input is empty, since it must not be bloated.
         // If the script is invalid without witness, it would be caught sooner or later during validation.

@@ -269,7 +269,7 @@ static std::pair<int, int64_t> CalculateSequenceLocks(const CTransaction &tx, in
         // Sequence numbers with the most significant bit set are not
         // treated as relative lock-times, nor are they given any
         // consensus-enforced meaning at this point.
-        if (txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_DISABLE_FLAG) {
+        if (txin.IsCoinbase() || (txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_DISABLE_FLAG)) {
             // The height of this input is not relevant for sequence locks
             (*prevHeights)[txinIndex] = 0;
             continue;
@@ -421,7 +421,7 @@ unsigned int GetLegacySigOpCount(const CTransaction& tx)
 
 unsigned int GetP2SHSigOpCount(const CTransaction& tx, const CCoinsViewCache& inputs)
 {
-    if (tx.IsCoinBase())
+    if (tx.IsCoinBase(false))
         return 0;
 
     unsigned int nSigOps = 0;
@@ -438,9 +438,10 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
 {
     int64_t nSigOps = 0;
     if (flags & SCRIPT_VERIFY_HARDFORK) {
-        if (tx.IsCoinBase())
-            return nSigOps;
-        for (unsigned int i = 0; i < tx.vin.size(); i++) {
+        unsigned int start = 0;
+        if (tx.IsCoinBase(true))
+            start = 1;
+        for (unsigned int i = start; i < tx.vin.size(); i++) {
             nSigOps += tx.vin[i].scriptSig.GetSigOpCount(true);
             const CTxOut &prevout = inputs.GetOutputFor(tx.vin[i]);
             if (prevout.scriptPubKey.IsPayToScriptHash())
@@ -453,7 +454,7 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
     }
     nSigOps = GetLegacySigOpCount(tx) * WITNESS_SCALE_FACTOR;
 
-    if (tx.IsCoinBase())
+    if (tx.IsCoinBase(false))
         return nSigOps;
 
     if (flags & SCRIPT_VERIFY_P2SH) {
@@ -472,8 +473,9 @@ unsigned int GetTransactionLegacySigHashOpCount(const CTransaction& tx, const CC
 {
     unsigned int nSigHashOps = 0;
 
-    if (tx.IsCoinBase())
-        return nSigHashOps;
+    unsigned int start = 0;
+    if (tx.IsCoinBase(true))
+        start = 1;
 
     for (unsigned int i = start; i < tx.vin.size(); i++) {
         nSigHashOps += tx.vin[i].scriptSig.GetSigHashOpCount();
@@ -529,7 +531,25 @@ bool CheckTransaction(const CTransaction& tx, CValidationState &state, const boo
         }
     }
 
-    if (tx.IsCoinBase())
+    if (hardfork) {
+        unsigned int start = 0;
+        if (tx.IsCoinBase(true)) {
+            if (tx.vin[0].scriptSig.size() > 252)
+                return state.DoS(100, false, REJECT_INVALID, "bad-cb-length");
+            if (tx.vin[0].scriptWitness.stack.size()) {
+                if (tx.vin[0].scriptWitness.stack.size() != 1 || tx.vin[0].scriptWitness.stack[0].size() > 252)
+                    return state.DoS(100, false, REJECT_INVALID, "bad-coinbase-witness-size", true, strprintf("%s : invalid coinbase witness size", __func__));
+            }
+            start = 1;
+        }
+        for (unsigned int i = start; i < tx.vin.size(); i++) {
+            if (tx.vin[i].IsCoinbase())
+                return state.DoS(10, false, REJECT_INVALID, "bad-txns-prevout-coinbase");
+        }
+        return true;
+    }
+
+    if (tx.IsCoinBase(false))
     {
         if (tx.vin[0].scriptSig.size() < 2 || tx.vin[0].scriptSig.size() > 100)
             return state.DoS(100, false, REJECT_INVALID, "bad-cb-length");
@@ -592,7 +612,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         return false; // state filled in by CheckTransaction
 
     // Coinbase is only valid in a block, not as a loose transaction
-    if (tx.IsCoinBase())
+    if (tx.IsCoinBase(true))
         return state.DoS(100, false, REJECT_INVALID, "coinbase");
 
     // Reject transactions with witness before segregated witness activates (override with -prematurewitness)
@@ -1325,9 +1345,11 @@ void static InvalidBlockFound(CBlockIndex *pindex, const CValidationState &state
 void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txundo, int nHeight)
 {
     // mark inputs spent
-    if (!tx.IsCoinBase()) {
+    if (!tx.IsCoinBase(false)) {
         txundo.vprevout.reserve(tx.vin.size());
         BOOST_FOREACH(const CTxIn &txin, tx.vin) {
+            if (txin.IsCoinbase())
+                continue;
             CCoinsModifier coins = inputs.ModifyCoins(txin.prevout.hash);
             unsigned nPos = txin.prevout.n;
 
@@ -1345,7 +1367,7 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txund
         }
     }
     // add outputs
-    inputs.ModifyNewCoins(tx.GetHash(), tx.IsCoinBase())->FromTx(tx, nHeight);
+    inputs.ModifyNewCoins(tx.GetHash(), tx.IsCoinBase(false))->FromTx(tx, nHeight);
 }
 
 void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, int nHeight)
@@ -1380,7 +1402,10 @@ bool CheckTxInputs(const CTransaction& tx, CValidationState& state, const CCoins
 
         CAmount nValueIn = 0;
         CAmount nFees = 0;
-        for (unsigned int i = 0; i < tx.vin.size(); i++)
+        unsigned int start = 0;
+        if (tx.IsCoinBase(true))
+            start = 1;
+        for (unsigned int i = start; i < tx.vin.size(); i++)
         {
             const COutPoint &prevout = tx.vin[i].prevout;
             const CCoins *coins = inputs.AccessCoins(prevout.hash);
@@ -1388,7 +1413,7 @@ bool CheckTxInputs(const CTransaction& tx, CValidationState& state, const CCoins
 
             // If prev is coinbase, check that it's matured
             if (coins->IsCoinBase()) {
-                if (nSpendHeight - coins->nHeight < COINBASE_MATURITY)
+                if (!tx.IsCoinBase(true) && (nSpendHeight - coins->nHeight < COINBASE_MATURITY))
                     return state.Invalid(false,
                         REJECT_INVALID, "bad-txns-premature-spend-of-coinbase",
                         strprintf("tried to spend coinbase at depth %d", nSpendHeight - coins->nHeight));
@@ -1400,6 +1425,9 @@ bool CheckTxInputs(const CTransaction& tx, CValidationState& state, const CCoins
                 return state.DoS(100, false, REJECT_INVALID, "bad-txns-inputvalues-outofrange");
 
         }
+
+        if (tx.IsCoinBase(true))
+            return true;
 
         if (nValueIn < tx.GetValueOut())
             return state.DoS(100, false, REJECT_INVALID, "bad-txns-in-belowout", false,
@@ -1418,7 +1446,7 @@ bool CheckTxInputs(const CTransaction& tx, CValidationState& state, const CCoins
 
 bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsViewCache &inputs, bool fScriptChecks, unsigned int flags, bool cacheStore, PrecomputedTransactionData& txdata, std::vector<CScriptCheck> *pvChecks)
 {
-    if (!tx.IsCoinBase())
+    if (!tx.IsCoinBase(false))
     {
         if (!Consensus::CheckTxInputs(tx, state, inputs, GetSpendHeight(inputs)))
             return false;
@@ -1437,7 +1465,10 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
         // the checkpoint is for a chain that's invalid due to false scriptSigs
         // this optimization would allow an invalid chain to be accepted.
         if (fScriptChecks) {
-            for (unsigned int i = 0; i < tx.vin.size(); i++) {
+            unsigned int start = 0;
+            if (tx.IsCoinBase(true))
+                start = 1;
+            for (unsigned int i = start; i < tx.vin.size(); i++) {
                 const COutPoint &prevout = tx.vin[i].prevout;
                 const CCoins* coins = inputs.AccessCoins(prevout.hash);
                 assert(coins);
@@ -1871,7 +1902,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
         nInputs += tx.vin.size();
 
-        if (!tx.IsCoinBase())
+        if (!tx.IsCoinBase(false))
         {
             if (!view.HaveInputs(tx))
                 return state.DoS(100, error("ConnectBlock(): inputs missing/spent"),
@@ -1881,7 +1912,12 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             // BIP68 lock checks (as opposed to nLockTime checks) must
             // be in ConnectBlock because they require the UTXO set
             prevheights.resize(tx.vin.size());
-            for (size_t j = 0; j < tx.vin.size(); j++) {
+            size_t start = 0;
+            if (tx.IsCoinBase(true)) {
+                start = 1;
+                prevheights[0] = 0;
+            }
+            for (size_t j = start; j < tx.vin.size(); j++) {
                 prevheights[j] = view.AccessCoins(tx.vin[j].prevout.hash)->nHeight;
             }
 
@@ -1910,9 +1946,11 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         }
 
         txdata.emplace_back(tx);
-        if (!tx.IsCoinBase())
+        if (!tx.IsCoinBase(false))
         {
-            vTxFees[i] = view.GetValueIn(tx)-tx.GetValueOut();
+            vTxFees[i] = view.GetValueIn(tx);
+            if (!tx.IsCoinBase(true))
+                vTxFees[i] -= tx.GetValueOut();
             nFees += vTxFees[i];
 
             std::vector<CScriptCheck> vChecks;
@@ -2218,7 +2256,7 @@ bool static DisconnectTip(CValidationState& state, const CChainParams& chainpara
             const CTransaction& tx = *it;
             // ignore validation errors in resurrected transactions
             CValidationState stateDummy;
-            if (tx.IsCoinBase() || !AcceptToMemoryPool(mempool, stateDummy, it, false, NULL, true)) {
+            if (tx.IsCoinBase(true) || !AcceptToMemoryPool(mempool, stateDummy, it, false, NULL, true)) {
                 mempool.removeRecursive(tx);
             } else if (mempool.exists(tx.GetHash())) {
                 vHashUpdate.push_back(tx.GetHash());
@@ -2893,7 +2931,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
     // checks that use witness data may be performed here.
 
     // Size limits
-    if (block.nHeight < HARDFORK_HEIGHT) {
+    bool hardforkEnabled = (block.nHeight >= HARDFORK_HEIGHT);
+    if (!hardforkEnabled) {
         if (block.vtx.empty() || block.vtx.size() > MAX_BLOCK_BASE_SIZE || ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS | SERIALIZE_BLOCK_LEGACY) > MAX_BLOCK_BASE_SIZE)
             return state.DoS(100, false, REJECT_INVALID, "bad-blk-length", false, "size limits failed");
 
@@ -2913,10 +2952,6 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
 
         bool malleated = false;
         uint256 hashWitness = BlockWitnessMerkleRoot(block, &malleated, true);
-        if (block.vtx[0]->vin[0].scriptWitness.stack.size()) {
-            if (block.vtx[0]->vin[0].scriptWitness.stack.size() != 1 || block.vtx[0]->vin[0].scriptWitness.stack[0].size() > 252)
-                return state.DoS(100, false, REJECT_INVALID, "bad-coinbase-witness-size", true, strprintf("%s : invalid coinbase witness size", __func__));
-        }
         if (hashWitness != block.hashMerkleRootWitnesses)
             return state.DoS(100, false, REJECT_INVALID, "bad-witness-merkle-match", true, strprintf("%s : witness merkle commitment mismatch", __func__));
 
@@ -2930,11 +2965,13 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
     }
 
     // First transaction must be coinbase, the rest must not be
-    if (block.vtx.empty() || !block.vtx[0]->IsCoinBase())
+    if (block.vtx.empty() || !block.vtx[0]->IsCoinBase(hardforkEnabled))
         return state.DoS(100, false, REJECT_INVALID, "bad-cb-missing", false, "first tx is not coinbase");
     for (unsigned int i = 1; i < block.vtx.size(); i++)
-        if (block.vtx[i]->IsCoinBase())
+        if (block.vtx[i]->IsCoinBase(hardforkEnabled))
             return state.DoS(100, false, REJECT_INVALID, "bad-cb-multiple", false, "more than one coinbase");
+    if (block.hashPrevBlock != block.vtx[0]->vin[0].prevout.hash && hardforkEnabled)
+        return state.DoS(100, false, REJECT_INVALID, "bad-cb-prevout-hash", false, "the first prevout of first tx is not hashPrevBlock");
 
     // Check transactions
     for (const auto& tx : block.vtx)
@@ -3078,7 +3115,7 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const Co
     }
 
     // Enforce rule that the coinbase starts with serialized block height
-    if (nHeight >= consensusParams.BIP34Height)
+    if (nHeight >= consensusParams.BIP34Height && nHeight < HARDFORK_HEIGHT)
     {
         CScript expect = CScript() << nHeight;
         if (block.vtx[0]->vin[0].scriptSig.size() < expect.size() ||
