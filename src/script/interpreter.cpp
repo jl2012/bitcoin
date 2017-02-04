@@ -961,6 +961,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     }
 
                     bool fSuccess = true;
+                    uint256 sighashCopy;
                     while (fSuccess && nSigsCount > 0)
                     {
                         valtype& vchSig    = stacktop(-isig);
@@ -975,11 +976,12 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         }
 
                         // Check signature
-                        bool fOk = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
+                        bool fOk = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion, &sighashCopy);
 
                         if (fOk) {
                             isig++;
                             nSigsCount--;
+                            sighashCopy.SetNull();
                         }
                         ikey++;
                         nKeysCount--;
@@ -1250,7 +1252,7 @@ bool TransactionSignatureChecker::VerifySignature(const std::vector<unsigned cha
     return pubkey.Verify(sighash, vchSig);
 }
 
-bool TransactionSignatureChecker::CheckSig(const vector<unsigned char>& vchSigIn, const vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
+bool TransactionSignatureChecker::CheckSig(const vector<unsigned char>& vchSigIn, const vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, uint256* sighashCopy) const
 {
     CPubKey pubkey(vchPubKey);
     if (!pubkey.IsValid())
@@ -1263,7 +1265,14 @@ bool TransactionSignatureChecker::CheckSig(const vector<unsigned char>& vchSigIn
     int nHashType = vchSig.back();
     vchSig.pop_back();
 
-    uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, this->txdata);
+    uint256 sighash;
+    if (sighashCopy && !sighashCopy->IsNull())
+        sighash = *sighashCopy;
+    else {
+        sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, this->txdata);
+        if (sighashCopy)
+            *sighashCopy = sighash;
+    }
 
     if (!VerifySignature(vchSig, pubkey, sighash))
         return false;
