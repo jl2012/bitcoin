@@ -125,6 +125,16 @@ public:
         return !(a == b);
     }
 
+    bool IsCoinBase() const
+    {
+        /*
+         * For hardfork only. An input is considered as coinbase input if the prevout hash is not null, which the n is
+         * 0xffffffff. Such prevout must be invalid for non-coinbse input because the previous transaction would be at
+         * least 38GB (2^32 * 9)
+         */
+        return (!prevout.hash.IsNull() && prevout.n == (uint32_t) -1);
+    }
+
     std::string ToString() const;
 };
 
@@ -423,6 +433,15 @@ public:
     bool IsPreHardForkNetwork() const
     {
         return (!(nVersion & NETWORK_MASK) || (nVersion & PREHARDFORK_NETWORK_BIT));
+    }
+
+    bool IsNewCoinBase(const bool& both = false) const
+    {
+        /*
+         * A new coinbase transaction format requires the prevout of the first input must be the hash of the previous
+         * block, with an n of 0xffffffff. It may have additional inputs. Lagecy coinbase format is also accepted.
+         */
+        return ((vin.size() && vin[0].IsCoinBase()) || (both && IsCoinBase()));
     }
 };
 

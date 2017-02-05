@@ -129,7 +129,8 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
     if (tx.IsCoinBase())
         return true; // Coinbases don't use vin normally
 
-    for (unsigned int i = 0; i < tx.vin.size(); i++)
+    unsigned int start = tx.IsNewCoinBase() ? 1 : 0;
+    for (unsigned int i = start; i < tx.vin.size(); i++)
     {
         const CTxOut& prev = mapInputs.GetOutputFor(tx.vin[i]);
 
@@ -163,7 +164,8 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
     if (tx.IsCoinBase())
         return true; // Coinbases are skipped
 
-    for (unsigned int i = 0; i < tx.vin.size(); i++)
+    unsigned int start = tx.IsNewCoinBase() ? 1 : 0;
+    for (unsigned int i = start; i < tx.vin.size(); i++)
     {
         // We don't care if witness for this input is empty, since it must not be bloated.
         // If the script is invalid without witness, it would be caught sooner or later during validation.
