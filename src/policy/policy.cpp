@@ -58,8 +58,12 @@ bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, const bool w
 
 bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnessEnabled, const bool& hardforkEnabled)
 {
-    if (tx.nVersion > CTransaction::MAX_STANDARD_VERSION || tx.nVersion < 1) {
+    if (hardforkEnabled ^ tx.IsHardForkVersion() || (tx.nVersion & CTransaction::VERSION_MASK) < 1) {
         reason = "version";
+        return false;
+    }
+    if ((hardforkEnabled && !tx.IsHardForkNetwork()) || (!hardforkEnabled && !tx.IsPreHardForkNetwork())) {
+        reason = "bad-txns-hardfork-network-version";
         return false;
     }
 

@@ -313,6 +313,13 @@ public:
     // MAX_STANDARD_VERSION will be equal.
     static const int32_t MAX_STANDARD_VERSION=2;
 
+    // Hardfork replay protection
+    static const int32_t NETWORK_MASK = 0xff000000;
+    static const int32_t VERSION_MASK = ~NETWORK_MASK;
+    static const int32_t PREHARDFORK_NETWORK_BIT = 0x01000000;
+    static const int32_t HARDFORK_NETWORK_BIT = 0x02000000;
+    static const int32_t MIN_HARDFORK_VERSION = 3;
+
     // The local variables are made const to prevent unintended modification
     // without updating the cached hash value. However, CTransaction is not
     // actually immutable; deserialization and assignment are implemented,
@@ -401,6 +408,21 @@ public:
             }
         }
         return false;
+    }
+
+    bool IsHardForkVersion() const
+    {
+        return ((static_cast<uint32_t>(nVersion) & VERSION_MASK) >= MIN_HARDFORK_VERSION);
+    }
+
+    bool IsHardForkNetwork() const
+    {
+        return (!(nVersion & NETWORK_MASK) || (nVersion & HARDFORK_NETWORK_BIT));
+    }
+
+    bool IsPreHardForkNetwork() const
+    {
+        return (!(nVersion & NETWORK_MASK) || (nVersion & PREHARDFORK_NETWORK_BIT));
     }
 };
 

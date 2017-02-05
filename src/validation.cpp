@@ -512,7 +512,7 @@ unsigned int GetTransactionLegacySigHashOpCount(const CTransaction& tx, const CC
 {
     unsigned int nSigHashOps = 0;
 
-    if (tx.IsCoinBase())
+    if (tx.IsCoinBase() || tx.IsHardForkVersion())
         return nSigHashOps;
 
     for (const auto& txin : tx.vin)
@@ -564,6 +564,8 @@ bool CheckTransaction(const CTransaction& tx, CValidationState &state, const boo
     if (hardforkEnabled) {
         if (GetTransactionSizeCost(tx) > MAX_TARGET_BLOCK_WEIGHT)
             return state.DoS(100, false, REJECT_INVALID, "bad-txns-oversize");
+        if (tx.nVersion & CTransaction::NETWORK_MASK && !(tx.nVersion & CTransaction::HARDFORK_NETWORK_BIT))
+            return state.DoS(0, false, REJECT_INVALID, "bad-txns-hardfork-version");
     }
 
     if (tx.IsCoinBase())
