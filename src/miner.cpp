@@ -45,6 +45,7 @@
 uint64_t nLastBlockTx = 0;
 uint64_t nLastBlockSize = 0;
 uint64_t nLastBlockWeight = 0;
+uint64_t nLastBlockNewWeight = 0;
 
 class ScoreCompare
 {
@@ -116,6 +117,7 @@ void BlockAssembler::resetBlock()
     // Reserve space for coinbase tx
     nBlockSize = 1000;
     nBlockWeight = 4000;
+    nBlockNewWeight = 4000;
     nBlockSigOpsCost = 400;
     fIncludeWitness = false;
 
@@ -141,12 +143,19 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     pblock->vtx.emplace_back();
     pblocktemplate->vTxFees.push_back(-1); // updated at end
     pblocktemplate->vTxSigOpsCost.push_back(-1); // updated at end
+    pblocktemplate->vTxNewWeight.push_back(-1); // updated at end
 
     LOCK2(cs_main, mempool.cs);
     CBlockIndex* pindexPrev = chainActive.Tip();
     nHeight = pindexPrev->nHeight + 1;
 
     pblock->nVersion = ComputeBlockVersion(pindexPrev, chainparams.GetConsensus());
+    const bool hardforkEnabled = (IsHardForkEnabled(chainActive.Tip(), chainparams.GetConsensus(), pblock->nVersion) ||
+            (chainActive.Tip()->GetMedianTimePast() + 1 >= chainparams.GetConsensus().HardForkTime && GetBoolArg("-hardforkmining", false)));
+
+    if (hardforkEnabled)
+        pblock->nVersion |= HARDFORK_VERSION_BIT;
+
     // -regtest only: allow overriding block.nVersion with
     // -blockversion=N to test forking scenarios
     if (chainparams.MineBlocksOnDemand())
@@ -173,6 +182,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     nLastBlockTx = nBlockTx;
     nLastBlockSize = nBlockSize;
     nLastBlockWeight = nBlockWeight;
+    nLastBlockNewWeight = nBlockNewWeight;
 
     // Create coinbase transaction.
     CMutableTransaction coinbaseTx;
@@ -182,8 +192,21 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     coinbaseTx.vout[0].scriptPubKey = scriptPubKeyIn;
     coinbaseTx.vout[0].nValue = nFees + GetBlockSubsidy(nHeight, chainparams.GetConsensus());
     coinbaseTx.vin[0].scriptSig = CScript() << nHeight << OP_0;
+    if (hardforkEnabled) {
+        std::vector<std::vector<unsigned char> >& vHeader = coinbaseTx.vin[0].scriptWitness.stack;
+        vHeader.resize(2);
+        vHeader[0].resize(4);
+        vHeader[1].resize(70, 0);
+        bool mutated;
+        uint256 hashTxMerkleRoot = BlockMerkleRoot(*pblock, &mutated);
+        uint256 hashWitnessMerkleRoot = BlockWitnessMerkleRoot(*pblock, &mutated);
+        WriteLE32(&vHeader[1][0], pblock->vtx.size());
+        memcpy(&vHeader[1][6], hashTxMerkleRoot.begin(), 32);
+        memcpy(&vHeader[1][38], hashWitnessMerkleRoot.begin(), 32);
+    }
     pblock->vtx[0] = MakeTransactionRef(std::move(coinbaseTx));
-    pblocktemplate->vchCoinbaseCommitment = GenerateCoinbaseCommitment(*pblock, pindexPrev, chainparams.GetConsensus());
+    if (!hardforkEnabled)
+        pblocktemplate->vchCoinbaseCommitment = GenerateCoinbaseCommitment(*pblock, pindexPrev, chainparams.GetConsensus());
     pblocktemplate->vTxFees[0] = -nFees;
 
     uint64_t nSerializeSize = GetSerializeSize(*pblock, SER_NETWORK, PROTOCOL_VERSION);
@@ -195,6 +218,8 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     pblock->nBits          = GetNextWorkRequired(pindexPrev, pblock, chainparams.GetConsensus());
     pblock->nNonce         = 0;
     pblocktemplate->vTxSigOpsCost[0] = WITNESS_SCALE_FACTOR * GetLegacySigOpCount(*pblock->vtx[0]);
+    if (hardforkEnabled)
+        pblocktemplate->vTxNewWeight[0] = GetTransactionSizeCost(*pblock->vtx[0]);
 
     CValidationState state;
     if (!TestBlockValidity(state, chainparams, *pblock, pindexPrev, false, false)) {
@@ -228,8 +253,13 @@ void BlockAssembler::onlyUnconfirmed(CTxMemPool::setEntries& testSet)
     }
 }
 
-bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost)
+bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost, int64_t packageNewWeight)
 {
+    if (pblock->nVersion & HARDFORK_VERSION_BIT) {
+        if ((nBlockNewWeight + packageNewWeight) >= nBlockMaxWeight)
+            return false;
+        return true;
+    }
     // TODO: switch to weight-based accounting for packages instead of vsize-based accounting.
     if (nBlockWeight + WITNESS_SCALE_FACTOR * packageSize >= nBlockMaxWeight)
         return false;
@@ -251,6 +281,10 @@ bool BlockAssembler::TestPackageTransactions(const CTxMemPool::setEntries& packa
             return false;
         if (!fIncludeWitness && it->GetTx().HasWitness())
             return false;
+        if (!pblock->nVersion & HARDFORK_VERSION_BIT && (it->GetTx().IsHardForkVersion() || !it->GetTx().IsPreHardForkNetwork()))
+            return false;
+        if (pblock->nVersion & HARDFORK_VERSION_BIT && !it->GetTx().IsHardForkNetwork())
+            return false;
         if (fNeedSizeAccounting) {
             uint64_t nTxSize = ::GetSerializeSize(it->GetTx(), SER_NETWORK, PROTOCOL_VERSION);
             if (nPotentialBlockSize + nTxSize >= nBlockMaxSize) {
@@ -264,47 +298,69 @@ bool BlockAssembler::TestPackageTransactions(const CTxMemPool::setEntries& packa
 
 bool BlockAssembler::TestForBlock(CTxMemPool::txiter iter)
 {
-    if (nBlockWeight + iter->GetTxWeight() >= nBlockMaxWeight) {
-        // If the block is so close to full that no more txs will fit
-        // or if we've tried more than 50 times to fill remaining space
-        // then flag that the block is finished
-        if (nBlockWeight >  nBlockMaxWeight - 400 || lastFewTxs > 50) {
-             blockFinished = true;
-             return false;
-        }
-        // Once we're within 4000 weight of a full block, only look at 50 more txs
-        // to try to fill the remaining space.
-        if (nBlockWeight > nBlockMaxWeight - 4000) {
-            lastFewTxs++;
-        }
-        return false;
-    }
-
-    if (fNeedSizeAccounting) {
-        if (nBlockSize + ::GetSerializeSize(iter->GetTx(), SER_NETWORK, PROTOCOL_VERSION) >= nBlockMaxSize) {
-            if (nBlockSize >  nBlockMaxSize - 100 || lastFewTxs > 50) {
-                 blockFinished = true;
-                 return false;
+    if (!pblock->nVersion & HARDFORK_VERSION_BIT) {
+        if (iter->GetTx().IsHardForkVersion() || !iter->GetTx().IsPreHardForkNetwork())
+            return false;
+        if (nBlockWeight + iter->GetTxWeight() >= nBlockMaxWeight) {
+            // If the block is so close to full that no more txs will fit
+            // or if we've tried more than 50 times to fill remaining space
+            // then flag that the block is finished
+            if (nBlockWeight > nBlockMaxWeight - 400 || lastFewTxs > 50) {
+                blockFinished = true;
+                return false;
             }
-            if (nBlockSize > nBlockMaxSize - 1000) {
+            // Once we're within 4000 weight of a full block, only look at 50 more txs
+            // to try to fill the remaining space.
+            if (nBlockWeight > nBlockMaxWeight - 4000) {
+                lastFewTxs++;
+            }
+            return false;
+        }
+
+        if (fNeedSizeAccounting) {
+            if (nBlockSize + ::GetSerializeSize(iter->GetTx(), SER_NETWORK, PROTOCOL_VERSION) >= nBlockMaxSize) {
+                if (nBlockSize > nBlockMaxSize - 100 || lastFewTxs > 50) {
+                    blockFinished = true;
+                    return false;
+                }
+                if (nBlockSize > nBlockMaxSize - 1000) {
+                    lastFewTxs++;
+                }
+                return false;
+            }
+        }
+
+        if (nBlockSigOpsCost + iter->GetSigOpCost() >= MAX_BLOCK_SIGOPS_COST) {
+            // If the block has room for no more sig ops then
+            // flag that the block is finished
+            if (nBlockSigOpsCost > MAX_BLOCK_SIGOPS_COST - 8) {
+                blockFinished = true;
+                return false;
+            }
+            // Otherwise attempt to find another tx with fewer sigops
+            // to put in the block.
+            return false;
+        }
+    }
+    else {
+        if (!iter->GetTx().IsHardForkNetwork())
+            return false;
+        if (nBlockNewWeight + iter->GetTxNewWeight() >= nBlockMaxWeight) {
+            // If the block is so close to full that no more txs will fit
+            // or if we've tried more than 50 times to fill remaining space
+            // then flag that the block is finished
+            if (nBlockNewWeight > nBlockMaxWeight - 400 || lastFewTxs > 50) {
+                blockFinished = true;
+                return false;
+            }
+            // Once we're within 4000 weight of a full block, only look at 50 more txs
+            // to try to fill the remaining space.
+            if (nBlockNewWeight > nBlockMaxWeight - 4000) {
                 lastFewTxs++;
             }
             return false;
         }
     }
-
-    if (nBlockSigOpsCost + iter->GetSigOpCost() >= MAX_BLOCK_SIGOPS_COST) {
-        // If the block has room for no more sig ops then
-        // flag that the block is finished
-        if (nBlockSigOpsCost > MAX_BLOCK_SIGOPS_COST - 8) {
-            blockFinished = true;
-            return false;
-        }
-        // Otherwise attempt to find another tx with fewer sigops
-        // to put in the block.
-        return false;
-    }
-
     // Must check that lock times are still valid
     // This can be removed once MTP is always enforced
     // as long as reorgs keep the mempool consistent.
@@ -319,10 +375,12 @@ void BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
     pblock->vtx.emplace_back(iter->GetSharedTx());
     pblocktemplate->vTxFees.push_back(iter->GetFee());
     pblocktemplate->vTxSigOpsCost.push_back(iter->GetSigOpCost());
+    pblocktemplate->vTxNewWeight.push_back(iter->GetTxNewWeight());
     if (fNeedSizeAccounting) {
         nBlockSize += ::GetSerializeSize(iter->GetTx(), SER_NETWORK, PROTOCOL_VERSION);
     }
     nBlockWeight += iter->GetTxWeight();
+    nBlockNewWeight += iter->GetTxNewWeight();
     ++nBlockTx;
     nBlockSigOpsCost += iter->GetSigOpCost();
     nFees += iter->GetFee();
@@ -354,6 +412,7 @@ void BlockAssembler::UpdatePackagesForAdded(const CTxMemPool::setEntries& alread
             if (mit == mapModifiedTx.end()) {
                 CTxMemPoolModifiedEntry modEntry(desc);
                 modEntry.nSizeWithAncestors -= it->GetTxSize();
+                modEntry.nNewWeightWithAncestors -= it->GetTxNewWeight();
                 modEntry.nModFeesWithAncestors -= it->GetModifiedFee();
                 modEntry.nSigOpCostWithAncestors -= it->GetSigOpCost();
                 mapModifiedTx.insert(modEntry);
@@ -456,20 +515,23 @@ void BlockAssembler::addPackageTxs()
         assert(!inBlock.count(iter));
 
         uint64_t packageSize = iter->GetSizeWithAncestors();
+        uint64_t packageNewWeight = iter->GetNewWeightWithAncestors();
         CAmount packageFees = iter->GetModFeesWithAncestors();
         int64_t packageSigOpsCost = iter->GetSigOpCostWithAncestors();
         if (fUsingModified) {
             packageSize = modit->nSizeWithAncestors;
+            packageNewWeight = modit->nNewWeightWithAncestors;
             packageFees = modit->nModFeesWithAncestors;
             packageSigOpsCost = modit->nSigOpCostWithAncestors;
         }
 
-        if (packageFees < blockMinFeeRate.GetFee(packageSize)) {
+        uint64_t nSize = pblock->nVersion & HARDFORK_VERSION_BIT ? packageNewWeight : packageSize;
+        if (packageFees < blockMinFeeRate.GetFee(nSize)) {
             // Everything else we might consider has a lower fee rate
             return;
         }
 
-        if (!TestPackage(packageSize, packageSigOpsCost)) {
+        if (!TestPackage(packageSize, packageSigOpsCost, packageNewWeight)) {
             if (fUsingModified) {
                 // Since we always look at the best entry in mapModifiedTx,
                 // we must erase failed entries so that we can consider the
@@ -606,6 +668,12 @@ void IncrementExtraNonce(CBlock* pblock, const CBlockIndex* pindexPrev, unsigned
     ++nExtraNonce;
     unsigned int nHeight = pindexPrev->nHeight+1; // Height first in coinbase required for block.version=2
     CMutableTransaction txCoinbase(*pblock->vtx[0]);
+    if (pblock->nVersion & HARDFORK_VERSION_BIT) {
+        WriteLE32(&txCoinbase.vin[0].scriptWitness.stack[0][0], nExtraNonce);
+        pblock->vtx[0] = MakeTransactionRef(std::move(txCoinbase));
+        pblock->hashMerkleRoot = GetHeaderCommitment(txCoinbase.vin[0].scriptWitness.stack);
+        return;
+    }
     txCoinbase.vin[0].scriptSig = (CScript() << nHeight << CScriptNum(nExtraNonce)) + COINBASE_FLAGS;
     assert(txCoinbase.vin[0].scriptSig.size() <= 100);
 

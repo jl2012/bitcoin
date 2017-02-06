@@ -30,6 +30,7 @@ struct CBlockTemplate
     std::vector<CAmount> vTxFees;
     std::vector<int64_t> vTxSigOpsCost;
     std::vector<unsigned char> vchCoinbaseCommitment;
+    std::vector<int64_t> vTxNewWeight;
 };
 
 // Container for tracking updates to ancestor feerate as we include (parent)
@@ -39,12 +40,14 @@ struct CTxMemPoolModifiedEntry {
     {
         iter = entry;
         nSizeWithAncestors = entry->GetSizeWithAncestors();
+        nNewWeightWithAncestors = entry->GetNewWeightWithAncestors();
         nModFeesWithAncestors = entry->GetModFeesWithAncestors();
         nSigOpCostWithAncestors = entry->GetSigOpCostWithAncestors();
     }
 
     CTxMemPool::txiter iter;
     uint64_t nSizeWithAncestors;
+    uint64_t nNewWeightWithAncestors;
     CAmount nModFeesWithAncestors;
     int64_t nSigOpCostWithAncestors;
 };
@@ -72,6 +75,7 @@ struct modifiedentry_iter {
 // This matches the calculation in CompareTxMemPoolEntryByAncestorFee,
 // except operating on CTxMemPoolModifiedEntry.
 // TODO: refactor to avoid duplication of this logic.
+// TODO: transition to new tx weight.
 struct CompareModifiedEntry {
     bool operator()(const CTxMemPoolModifiedEntry &a, const CTxMemPoolModifiedEntry &b)
     {
@@ -124,6 +128,7 @@ struct update_for_parent_inclusion
     {
         e.nModFeesWithAncestors -= iter->GetFee();
         e.nSizeWithAncestors -= iter->GetTxSize();
+        e.nNewWeightWithAncestors -= iter->GetTxNewWeight();
         e.nSigOpCostWithAncestors -= iter->GetSigOpCost();
     }
 
@@ -148,6 +153,7 @@ private:
     // Information on the current status of the block
     uint64_t nBlockWeight;
     uint64_t nBlockSize;
+    uint64_t nBlockNewWeight;
     uint64_t nBlockTx;
     uint64_t nBlockSigOpsCost;
     CAmount nFees;
@@ -190,7 +196,7 @@ private:
     /** Remove confirmed (inBlock) entries from given set */
     void onlyUnconfirmed(CTxMemPool::setEntries& testSet);
     /** Test if a new package would "fit" in the block */
-    bool TestPackage(uint64_t packageSize, int64_t packageSigOpsCost);
+    bool TestPackage(uint64_t packageSize, int64_t packageSigOpsCost, int64_t packageNewWeight);
     /** Perform checks on each transaction in a package:
       * locktime, premature-witness, serialized size (if necessary)
       * These checks should always succeed, and they're here
