@@ -588,7 +588,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         return state.DoS(100, false, REJECT_INVALID, "coinbase");
 
     // Reject transactions with witness before segregated witness activates (override with -prematurewitness)
-    bool witnessEnabled = IsWitnessEnabled(chainActive.Tip(), Params().GetConsensus());
+    bool witnessEnabled = IsWitnessEnabled(chainActive.Tip(), Params().GetConsensus(), chainActive.Tip()->nVersion);
     if (!GetBoolArg("-prematurewitness",false) && tx.HasWitness() && !witnessEnabled) {
         return state.DoS(0, false, REJECT_NONSTANDARD, "no-witness-yet", true);
     }
@@ -1846,7 +1846,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     }
 
     // Start enforcing WITNESS rules using versionbits logic.
-    if (IsWitnessEnabled(pindex->pprev, chainparams.GetConsensus())) {
+    if (IsWitnessEnabled(pindex->pprev, chainparams.GetConsensus(), pindex->nVersion)) {
         flags |= SCRIPT_VERIFY_WITNESS;
         flags |= SCRIPT_VERIFY_NULLDUMMY;
     }
@@ -2697,7 +2697,7 @@ bool ReceivedBlockTransactions(const CBlock &block, CValidationState& state, CBl
     pindexNew->nDataPos = pos.nPos;
     pindexNew->nUndoPos = 0;
     pindexNew->nStatus |= BLOCK_HAVE_DATA;
-    if (IsWitnessEnabled(pindexNew->pprev, Params().GetConsensus())) {
+    if (IsWitnessEnabled(pindexNew->pprev, Params().GetConsensus(), pindexNew->nVersion)) {
         pindexNew->nStatus |= BLOCK_OPT_WITNESS;
     }
     pindexNew->RaiseValidity(BLOCK_VALID_TRANSACTIONS);
@@ -2846,11 +2846,29 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
     if (!CheckBlockHeader(block, state, consensusParams, fCheckPOW))
         return false;
 
+    bool hardforkEnabled = consensusParams.HardForkTime >= 0 && block.nTime > consensusParams.HardForkTime && block.nVersion & HARDFORK_VERSION_BIT;
+    uint256 hashMerkleRoot;
+    std::vector<std::vector<unsigned char> > vHeader;
+    if (hardforkEnabled) {
+        if (block.vtx.empty() || block.vtx[0]->vin.empty())
+            return state.DoS(100, false, REJECT_INVALID, "bad-extheader-size", true, strprintf("%s : invalid extended header size", __func__));
+        vHeader = block.vtx[0]->vin[0].scriptWitness.stack;
+        if (vHeader.size() != 2 || vHeader[1].size() < 70 || vHeader[1][4] || vHeader[1][5])
+            return state.DoS(100, false, REJECT_INVALID, "bad-extheader-size", true, strprintf("%s : invalid extended header size", __func__));
+        if (vHeader[0].size() >= 15 && (vHeader[0][0] || vHeader[0][1] || vHeader[0][2] || vHeader[0][3] || vHeader[0][4] || vHeader[0][5]))
+            return state.DoS(100, false, REJECT_INVALID, "bad-extheader-size", true, strprintf("%s : invalid extended header size", __func__));
+        if (block.hashMerkleRoot != GetHeaderCommitment(vHeader))
+            return state.DoS(100, false, REJECT_INVALID, "bad-blkmrklroot", true, "hashBlockMerkleRoot mismatch");
+        memcpy(hashMerkleRoot.begin(), &vHeader[1][6], 32);
+    }
+    else
+        hashMerkleRoot = block.hashMerkleRoot;
+
     // Check the merkle root.
     if (fCheckMerkleRoot) {
         bool mutated;
         uint256 hashMerkleRoot2 = BlockMerkleRoot(block, &mutated);
-        if (block.hashMerkleRoot != hashMerkleRoot2)
+        if (hashMerkleRoot != hashMerkleRoot2)
             return state.DoS(100, false, REJECT_INVALID, "bad-txnmrklroot", true, "hashMerkleRoot mismatch");
 
         // Check for merkle tree malleability (CVE-2012-2459): repeating sequences
@@ -2858,6 +2876,14 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
         // while still invalidating it.
         if (mutated)
             return state.DoS(100, false, REJECT_INVALID, "bad-txns-duplicate", true, "duplicate transaction");
+
+        if (hardforkEnabled) {
+            if (block.vtx.size() != ReadLE32(&vHeader[1][0]))
+                return state.DoS(100, false, REJECT_INVALID, "bad-blk-length-match", false, "tx count commitment mismatch");
+            uint256 hashWitnessMerkleRoot = BlockWitnessMerkleRoot(block, &mutated);
+            if (memcmp(hashWitnessMerkleRoot.begin(), &vHeader[1][38], 32))
+                return state.DoS(100, false, REJECT_INVALID, "bad-witness-merkle-match", true, strprintf("%s : witness merkle commitment mismatch", __func__));
+        }
     }
 
     // All potential-corruption validation must be done before we do any
@@ -2897,6 +2923,14 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
     return true;
 }
 
+uint256 GetHeaderCommitment(const std::vector<std::vector<unsigned char> >& vHeader)
+{
+    std::vector<uint256> leaves(2);
+    CHash256().Write(&vHeader[0][0], vHeader[0].size()).Finalize(leaves[0].begin());
+    CHash256().Write(&vHeader[1][0], vHeader[1].size()).Finalize(leaves[1].begin());
+    return ComputeMerkleRoot(leaves);
+}
+
 static bool CheckIndexAgainstCheckpoint(const CBlockIndex* pindexPrev, CValidationState& state, const CChainParams& chainparams, const uint256& hash)
 {
     if (*pindexPrev->phashBlock == chainparams.GetConsensus().hashGenesisBlock)
@@ -2911,10 +2945,19 @@ static bool CheckIndexAgainstCheckpoint(const CBlockIndex* pindexPrev, CValidati
     return true;
 }
 
-bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params, const int32_t& nVersion)
 {
     LOCK(cs_main);
-    return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE);
+    return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE || IsHardForkEnabled(pindexPrev, params, nVersion));
+}
+
+bool IsHardForkEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params, const int32_t& nVersion)
+{
+    if (!pindexPrev || params.HardForkTime < 0)
+        return false;
+    const int64_t nMTP = pindexPrev->GetMedianTimePast();
+    return ((            nVersion & HARDFORK_VERSION_BIT && nMTP + 1 >= params.HardForkTime) ||
+            (pindexPrev->nVersion & HARDFORK_VERSION_BIT && nMTP     >= params.HardForkTime));
 }
 
 // Compute at which vout of the block's coinbase transaction the witness
@@ -2934,7 +2977,7 @@ void UpdateUncommittedBlockStructures(CBlock& block, const CBlockIndex* pindexPr
 {
     int commitpos = GetWitnessCommitmentIndex(block);
     static const std::vector<unsigned char> nonce(32, 0x00);
-    if (commitpos != -1 && IsWitnessEnabled(pindexPrev, consensusParams) && !block.vtx[0]->HasWitness()) {
+    if (commitpos != -1 && IsWitnessEnabled(pindexPrev, consensusParams, block.nVersion) && !block.vtx[0]->HasWitness()) {
         CMutableTransaction tx(*block.vtx[0]);
         tx.vin[0].scriptWitness.stack.resize(1);
         tx.vin[0].scriptWitness.stack[0] = nonce;
@@ -2974,6 +3017,7 @@ std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBloc
 bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& state, const Consensus::Params& consensusParams, const CBlockIndex* pindexPrev, int64_t nAdjustedTime)
 {
     const int nHeight = pindexPrev == NULL ? 0 : pindexPrev->nHeight + 1;
+    const bool hardforkEnabled = IsHardForkEnabled(pindexPrev, consensusParams, block.nVersion);
     // Check proof of work
     if (block.nBits != GetNextWorkRequired(pindexPrev, &block, consensusParams))
         return state.DoS(100, false, REJECT_INVALID, "bad-diffbits", false, "incorrect proof of work");
@@ -2985,6 +3029,13 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
     // Check timestamp
     if (block.GetBlockTime() > nAdjustedTime + 2 * 60 * 60)
         return state.Invalid(false, REJECT_INVALID, "time-too-new", "block timestamp too far in the future");
+
+    if (hardforkEnabled) {
+        if (block.nVersion & HARDFORK_VERSION_BIT)
+            return true;
+        return state.Invalid(false, REJECT_OBSOLETE, strprintf("bad-version(0x%08x)", block.nVersion),
+                             strprintf("rejected nVersion=0x%08x block", block.nVersion));
+    }
 
     // Reject outdated version blocks when 95% (75% on testnet) of the network has upgraded:
     // check for version 2, 3 and 4 upgrades
@@ -3000,6 +3051,7 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
 bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const Consensus::Params& consensusParams, const CBlockIndex* pindexPrev)
 {
     const int nHeight = pindexPrev == NULL ? 0 : pindexPrev->nHeight + 1;
+    const bool hardforkEnabled = IsHardForkEnabled(pindexPrev, consensusParams, block.nVersion);
 
     // Start enforcing BIP113 (Median Time Past) using versionbits logic.
     int nLockTimeFlags = 0;
@@ -3026,6 +3078,10 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const Co
             !std::equal(expect.begin(), expect.end(), block.vtx[0]->vin[0].scriptSig.begin())) {
             return state.DoS(100, false, REJECT_INVALID, "bad-cb-height", false, "block height mismatch in coinbase");
         }
+    }
+
+    if (hardforkEnabled) {
+        return true;
     }
 
     // Validation for witness commitments.
@@ -3698,7 +3754,7 @@ bool RewindBlockIndex(const CChainParams& params)
 
     int nHeight = 1;
     while (nHeight <= chainActive.Height()) {
-        if (IsWitnessEnabled(chainActive[nHeight - 1], params.GetConsensus()) && !(chainActive[nHeight]->nStatus & BLOCK_OPT_WITNESS)) {
+        if (IsWitnessEnabled(chainActive[nHeight - 1], params.GetConsensus(), chainActive[nHeight]->nVersion) && !(chainActive[nHeight]->nStatus & BLOCK_OPT_WITNESS)) {
             break;
         }
         nHeight++;
@@ -3735,7 +3791,7 @@ bool RewindBlockIndex(const CChainParams& params)
         // this block or some successor doesn't HAVE_DATA, so we were unable to
         // rewind all the way.  Blocks remaining on chainActive at this point
         // must not have their validity reduced.
-        if (IsWitnessEnabled(pindexIter->pprev, params.GetConsensus()) && !(pindexIter->nStatus & BLOCK_OPT_WITNESS) && !chainActive.Contains(pindexIter)) {
+        if (IsWitnessEnabled(pindexIter->pprev, params.GetConsensus(), pindexIter->nVersion) && !(pindexIter->nStatus & BLOCK_OPT_WITNESS) && !chainActive.Contains(pindexIter)) {
             // Reduce validity
             pindexIter->nStatus = std::min<unsigned int>(pindexIter->nStatus & BLOCK_VALID_MASK, BLOCK_VALID_TREE) | (pindexIter->nStatus & ~BLOCK_VALID_MASK);
             // Remove have-data flags.

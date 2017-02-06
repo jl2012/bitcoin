@@ -496,7 +496,10 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
 bool TestBlockValidity(CValidationState& state, const CChainParams& chainparams, const CBlock& block, CBlockIndex* pindexPrev, bool fCheckPOW = true, bool fCheckMerkleRoot = true);
 
 /** Check whether witness commitments are required for block. */
-bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params);
+bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params, const int32_t& nVersion);
+
+/** Check whether hardfork rules are applicable to a block. */
+bool IsHardForkEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params, const int32_t& nVersion);
 
 /** When there are blocks in the active chain with missing data, rewind the chainstate and remove them from the block index */
 bool RewindBlockIndex(const CChainParams& params);
@@ -506,6 +509,9 @@ void UpdateUncommittedBlockStructures(CBlock& block, const CBlockIndex* pindexPr
 
 /** Produce the necessary coinbase commitment for a block (modifies the hash, don't call for mined blocks). */
 std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams);
+
+/** Get the new header commitment in hardfork. */
+uint256 GetHeaderCommitment(const std::vector<std::vector<unsigned char> >& vHeader);
 
 /** RAII wrapper for VerifyDB: Verify consistency of the block and coin databases */
 class CVerifyDB {
