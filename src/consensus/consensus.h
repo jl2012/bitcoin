@@ -28,6 +28,8 @@ static const unsigned int MAX_BLOCK_WEIGHT_GROWTH_FACTOR = 4;
 static const unsigned int SIGOP_COST_SCALE_FACTOR = 50;
 /** Sighash cost scaling factor (network rule) */
 static const unsigned int SIGHASH_COST_SCALE_FACTOR = 90;
+/** Post-hardfork maximum miner space in miner header fields */
+static const unsigned int MAX_MINER_SPACE_SIZE = 252;
 
 /** Flags for nSequence and nLockTime locks */
 enum {
