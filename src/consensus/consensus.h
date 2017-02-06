@@ -26,6 +26,8 @@ static const unsigned int MAX_TARGET_BLOCK_WEIGHT = 16000000;
 static const unsigned int MAX_BLOCK_WEIGHT_GROWTH_FACTOR = 4;
 /** SigOp cost scaling factor (network rule) */
 static const unsigned int SIGOP_COST_SCALE_FACTOR = 50;
+/** Sighash cost scaling factor (network rule) */
+static const unsigned int SIGHASH_COST_SCALE_FACTOR = 90;
 
 /** Flags for nSequence and nLockTime locks */
 enum {

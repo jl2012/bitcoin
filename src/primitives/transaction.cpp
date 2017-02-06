@@ -155,3 +155,14 @@ int64_t GetTransactionSizeCost(const CTransaction& tx)
     nAdjustedSize -= tx.vin.size() * 41 * WITNESS_SCALE_FACTOR;
     return std::max(nSize * SIZE_SCALE_FACTOR, nAdjustedSize);
 }
+
+int64_t GetTransactionHashableSize(const CTransaction& tx)
+{
+    int64_t size = ::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS);
+    for (auto& txin : tx.vin)
+    {
+        size -= (txin.scriptSig.size() - GetSizeOfCompactSize(txin.scriptSig.size()) + 1);
+    }
+    return size;
+}
+

@@ -619,6 +619,14 @@ public:
      */
     unsigned int GetSigOpCount(const CScript& scriptSig) const;
 
+    /**
+     * Count the maximum number of sighashing-equivalent operations in a non-witness script.
+     * Each CHECKSIG is one operation
+     * For canonically encoded CHECKMULTISIG, each signature is one operation
+     */
+    unsigned int GetSigHashOpCount() const;
+    unsigned int GetSigHashOpCount(const CScript& scriptSig) const;
+
     bool IsPayToScriptHash() const;
     bool IsPayToWitnessScriptHash() const;
     bool IsWitnessProgram(int& version, std::vector<unsigned char>& program) const;

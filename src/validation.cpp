@@ -503,8 +503,28 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
 
 int64_t GetTransactionNewWeight(const CTransaction& tx, const CCoinsViewCache& inputs, int flags)
 {
-    return std::max({GetTransactionSizeCost(tx),
-                     GetTransactionSigOpCost(tx, inputs, flags | SCRIPT_VERIFY_HARDFORK)});
+    return std::max({GetTransactionSizeCost(tx) * SIGHASH_COST_SCALE_FACTOR,
+                     GetTransactionSigOpCost(tx, inputs, flags | SCRIPT_VERIFY_HARDFORK) * SIGHASH_COST_SCALE_FACTOR,
+                     GetTransactionLegacySigHashOpCount(tx, inputs) * GetTransactionHashableSize(tx)});
+}
+
+unsigned int GetTransactionLegacySigHashOpCount(const CTransaction& tx, const CCoinsViewCache& inputs)
+{
+    unsigned int nSigHashOps = 0;
+
+    if (tx.IsCoinBase())
+        return nSigHashOps;
+
+    for (const auto& txin : tx.vin)
+    {
+        nSigHashOps += txin.scriptSig.GetSigHashOpCount();
+        const CTxOut &prevout = inputs.GetOutputFor(txin);
+        nSigHashOps += prevout.scriptPubKey.GetSigHashOpCount();
+        if (prevout.scriptPubKey.IsPayToScriptHash())
+            nSigHashOps += prevout.scriptPubKey.GetSigHashOpCount(txin.scriptSig);
+    }
+
+    return nSigHashOps;
 }
 
 bool CheckTransaction(const CTransaction& tx, CValidationState &state, const bool& hardforkEnabled, bool fCheckDuplicateInputs)
@@ -776,7 +796,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             return state.DoS(0, false, REJECT_NONSTANDARD, "bad-txns-too-many-sigops", false,
                 strprintf("%d", nSigOpsCost));
 
-        if (hardforkEnabled && nTxNewWeight > MAX_STANDARD_TX_WEIGHT)
+        if (hardforkEnabled && nTxNewWeight > MAX_STANDARD_TX_WEIGHT * SIGHASH_COST_SCALE_FACTOR)
             return state.DoS(0, false, REJECT_NONSTANDARD, "tx-size", true);
 
         CAmount mempoolRejectFee = pool.GetMinFee(GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000).GetFee(nSize);
@@ -1930,7 +1950,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
         if (flags & SCRIPT_VERIFY_HARDFORK) {
             nNewWeight += GetTransactionNewWeight(tx, view, flags);
-            if (nNewWeight > GetMaxBlockWeight(pindex->pprev->GetMedianTimePast(), chainparams.GetConsensus()))
+            if (nNewWeight > GetMaxBlockWeight(pindex->pprev->GetMedianTimePast(), chainparams.GetConsensus()) * SIGHASH_COST_SCALE_FACTOR)
                 return state.DoS(100, error("ConnectBlock(): weight limit failed"),
                                  REJECT_INVALID, "bad-blk-weight");
         }
