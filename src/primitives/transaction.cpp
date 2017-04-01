@@ -119,3 +119,17 @@ int64_t GetTransactionWeight(const CTransaction& tx)
 {
     return ::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS) * (WITNESS_SCALE_FACTOR -1) + ::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION);
 }
+
+int64_t GetTransactionSizeCost(const CTransaction& tx)
+{
+    const int64_t nSize = ::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION);
+    int64_t nAdjustedSize = nSize + ::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS) * (WITNESS_SCALE_FACTOR -1);
+    int32_t nDiff = tx.vout.size() - tx.vin.size();
+    for (const auto& txout : tx.vout)
+    {
+        if (txout.scriptPubKey.IsUnspendable())
+            nDiff--;
+    }
+    nAdjustedSize += nDiff * 41 * WITNESS_SCALE_FACTOR;
+    return std::max(nSize * SIZE_SCALE_FACTOR, nAdjustedSize);
+}

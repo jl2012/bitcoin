@@ -375,7 +375,7 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, int nHeight);
 /** Transaction validation functions */
 
 /** Context-independent validity checks */
-bool CheckTransaction(const CTransaction& tx, CValidationState& state, bool fCheckDuplicateInputs=true);
+bool CheckTransaction(const CTransaction& tx, CValidationState& state, const bool& hardforkEnabled, bool fCheckDuplicateInputs=true);
 
 namespace Consensus {
 
@@ -503,6 +503,9 @@ bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& pa
 
 /** Check whether hardfork rules are applicable to a block. */
 bool IsHardForkEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params);
+
+/** Determine the maximum post hardfork block size. */
+uint64_t GetMaxBlockWeight(const int64_t& nMTP, const Consensus::Params& params);
 
 /** When there are blocks in the active chain with missing data, rewind the chainstate and remove them from the block index */
 bool RewindBlockIndex(const CChainParams& params);

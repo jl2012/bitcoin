@@ -18,6 +18,14 @@ static const unsigned int MAX_BLOCK_BASE_SIZE = 1000000;
 static const int64_t MAX_BLOCK_SIGOPS_COST = 80000;
 /** Coinbase transaction outputs can only be spent after this number of new blocks (network rule) */
 static const int COINBASE_MATURITY = 100;
+/** Initial max hardfork block weight (network rule) */
+static const unsigned int MAX_INITIAL_BLOCK_WEIGHT = 5000000;
+/** Final max hardfork block weight (network rule) */
+static const uint64_t MAX_TARGET_BLOCK_WEIGHT = 16000000;
+/** Growth rate of maximum hardfork block weight (1 weight by every 2^4 = 16 seconds; network rule) */
+static const unsigned int MAX_BLOCK_WEIGHT_GROWTH_FACTOR = 4;
+/** SigOp cost scaling factor (network rule) */
+static const unsigned int SIGOP_COST_SCALE_FACTOR = 50;
 
 /** Flags for nSequence and nLockTime locks */
 enum {
