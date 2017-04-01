@@ -1949,13 +1949,21 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     int64_t nTime3 = GetTimeMicros(); nTimeConnect += nTime3 - nTime2;
     LogPrint("bench", "      - Connect %u transactions: %.2fms (%.3fms/tx, %.3fms/txin) [%.2fs]\n", (unsigned)block.vtx.size(), 0.001 * (nTime3 - nTime2), 0.001 * (nTime3 - nTime2) / block.vtx.size(), nInputs <= 1 ? 0 : 0.001 * (nTime3 - nTime2) / (nInputs-1), nTimeConnect * 0.000001);
 
+    if (flags & SCRIPT_VERIFY_HARDFORK) {
+        const std::vector<unsigned char>& vExtHeader = block.vtx[0]->vin[0].scriptWitness.stack.at(0);
+        if ((int64_t)ReadLE64(&vExtHeader.at(122)) != nFees)
+            return state.DoS(100, "ConnectBlock(): fees commitment mismatch", REJECT_INVALID, "bad-extheader-fees");
+        const uint64_t nNewWeightHeader = ReadLE64(&vExtHeader.at(130));
+        if (nNewWeightHeader != nNewWeight && (nNewWeightHeader < nNewWeight || VersionBitsState(pindex->pprev, chainparams.GetConsensus(), Consensus::DEPLOYMENT_EXTHEADER, versionbitscache) != THRESHOLD_ACTIVE))
+            return state.DoS(100, "ConnectBlock(): weight commitment mismatch", REJECT_INVALID, "bad-extheader-weight");
+    }
+
     CAmount blockReward = nFees + GetBlockSubsidy(pindex->nHeight, chainparams.GetConsensus());
     if (block.vtx[0]->GetValueOut() > blockReward)
         return state.DoS(100,
                          error("ConnectBlock(): coinbase pays too much (actual=%d vs limit=%d)",
                                block.vtx[0]->GetValueOut(), blockReward),
                                REJECT_INVALID, "bad-cb-amount");
-
     if (!control.Wait())
         return state.DoS(100, false);
     int64_t nTime4 = GetTimeMicros(); nTimeVerify += nTime4 - nTime2;
