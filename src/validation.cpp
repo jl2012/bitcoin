@@ -544,6 +544,10 @@ bool CheckTransaction(const CTransaction& tx, CValidationState &state, const boo
     if (hardforkEnabled) {
         if ((uint64_t)GetTransactionSizeCost(tx) > MAX_TARGET_BLOCK_WEIGHT)
             return state.DoS(100, false, REJECT_INVALID, "bad-txns-oversize");
+        if (!tx.IsHardForkNetwork())
+            return state.DoS(0, false, REJECT_INVALID, "bad-txns-hardfork-network");
+        if (!tx.IsHardForkVersion() && ::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS) > MAX_BLOCK_BASE_SIZE)
+            return state.DoS(100, false, REJECT_INVALID, "bad-txns-oversize");
     }
 
     if (tx.IsCoinBase())

@@ -27,25 +27,25 @@ unsigned int HaveKeys(const std::vector<valtype>& pubkeys, const CKeyStore& keys
     return nResult;
 }
 
-isminetype IsMine(const CKeyStore& keystore, const CScript& scriptPubKey, SigVersion sigversion)
+isminetype IsMine(const CKeyStore& keystore, const CScript& scriptPubKey, unsigned int sigversion)
 {
     bool isInvalid = false;
     return IsMine(keystore, scriptPubKey, isInvalid, sigversion);
 }
 
-isminetype IsMine(const CKeyStore& keystore, const CTxDestination& dest, SigVersion sigversion)
+isminetype IsMine(const CKeyStore& keystore, const CTxDestination& dest, unsigned int sigversion)
 {
     bool isInvalid = false;
     return IsMine(keystore, dest, isInvalid, sigversion);
 }
 
-isminetype IsMine(const CKeyStore &keystore, const CTxDestination& dest, bool& isInvalid, SigVersion sigversion)
+isminetype IsMine(const CKeyStore &keystore, const CTxDestination& dest, bool& isInvalid, unsigned int sigversion)
 {
     CScript script = GetScriptForDestination(dest);
     return IsMine(keystore, script, isInvalid, sigversion);
 }
 
-isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey, bool& isInvalid, SigVersion sigversion)
+isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey, bool& isInvalid, unsigned int sigversion)
 {
     std::vector<valtype> vSolutions;
     txnouttype whichType;

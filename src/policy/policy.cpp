@@ -58,9 +58,25 @@ bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, const bool w
 
 bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnessEnabled, const bool& hardforkEnabled)
 {
-    if (tx.nVersion > CTransaction::MAX_STANDARD_VERSION || tx.nVersion < 1) {
-        reason = "version";
-        return false;
+    if (!hardforkEnabled) {
+        if (tx.IsHardForkVersion() || tx.nVersion < 1) {
+            reason = "version";
+            return false;
+        }
+        if (!tx.IsPreHardForkNetwork()) {
+            reason = "bad-txns-hardfork-network-version";
+            return false;
+        }
+    }
+    else {
+        if ((static_cast<uint32_t>(tx.nVersion) & CTransaction::VERSION_MASK) > CTransaction::MIN_HARDFORK_VERSION) {
+            reason = "version";
+            return false;
+        }
+        if (!tx.IsHardForkNetwork()) {
+            reason = "bad-txns-hardfork-network-version";
+            return false;
+        }
     }
 
     // Extremely large transactions with lots of inputs can cost the network
