@@ -2858,7 +2858,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
         if (hardforkEnabled) {
             if (block.vtx.size() != ReadLE32(&vExtHeader[0]))
                 return state.DoS(100, false, REJECT_INVALID, "bad-blk-length-match", false, "tx count commitment mismatch");
-            uint256 hashWitnessMerkleRoot = BlockWitnessMerkleRoot(block, &mutated);
+            uint256 hashWitnessMerkleRoot = BlockWitnessMerkleRoot(block, hardforkEnabled, &mutated);
             if (memcmp(hashWitnessMerkleRoot.begin(), &vExtHeader[38], 32))
                 return state.DoS(100, false, REJECT_INVALID, "bad-witness-merkle-match", true, strprintf("%s : witness merkle commitment mismatch", __func__));
         }
@@ -2959,7 +2959,7 @@ std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBloc
     std::vector<unsigned char> ret(32, 0x00);
     if (consensusParams.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout != 0) {
         if (commitpos == -1) {
-            uint256 witnessroot = BlockWitnessMerkleRoot(block, NULL);
+            uint256 witnessroot = BlockWitnessMerkleRoot(block, false, NULL);
             CHash256().Write(witnessroot.begin(), 32).Write(&ret[0], 32).Finalize(witnessroot.begin());
             CTxOut out;
             out.nValue = 0;
@@ -3070,7 +3070,7 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const Co
         int commitpos = GetWitnessCommitmentIndex(block);
         if (commitpos != -1) {
             bool malleated = false;
-            uint256 hashWitness = BlockWitnessMerkleRoot(block, &malleated);
+            uint256 hashWitness = BlockWitnessMerkleRoot(block, hardforkEnabled, &malleated);
             // The malleation check is ignored; as the transaction tree itself
             // already does not permit it, it is impossible to trigger in the
             // witness tree.

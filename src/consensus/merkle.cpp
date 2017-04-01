@@ -165,11 +165,19 @@ uint256 BlockMerkleRoot(const CBlock& block, bool* mutated)
     return ComputeMerkleRoot(leaves, mutated);
 }
 
-uint256 BlockWitnessMerkleRoot(const CBlock& block, bool* mutated)
+uint256 BlockWitnessMerkleRoot(const CBlock& block, const bool& hardfork, bool* mutated)
 {
     std::vector<uint256> leaves;
     leaves.resize(block.vtx.size());
-    leaves[0].SetNull(); // The witness hash of the coinbase is 0.
+    if (hardfork) {
+        // After hardfork, witness hash of the generating transaction is calculated by removing the extended header
+        CMutableTransaction mtx(*block.vtx[0]);
+        mtx.vin[0].scriptWitness.stack.clear();
+        const CTransaction& tx = mtx;
+        leaves[0] = tx.GetWitnessHash();
+    }
+    else
+        leaves[0].SetNull(); // Before hardfork, the witness hash of the coinbase is 0.
     for (size_t s = 1; s < block.vtx.size(); s++) {
         leaves[s] = block.vtx[s]->GetWitnessHash();
     }
