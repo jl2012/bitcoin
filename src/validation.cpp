@@ -1667,7 +1667,7 @@ int32_t ComputeBlockVersion(const CBlockIndex* pindexPrev, const Consensus::Para
 
     for (int i = 0; i < (int)Consensus::MAX_VERSION_BITS_DEPLOYMENTS; i++) {
         ThresholdState state = VersionBitsState(pindexPrev, params, (Consensus::DeploymentPos)i, versionbitscache);
-        if (state == THRESHOLD_LOCKED_IN || state == THRESHOLD_STARTED) {
+        if ((state == THRESHOLD_LOCKED_IN || state == THRESHOLD_STARTED) && !params.vDeployments[(Consensus::DeploymentPos)i].fSpecial) {
             nVersion |= VersionBitsMask(params, (Consensus::DeploymentPos)i);
         }
     }
@@ -3052,6 +3052,8 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const Co
         const std::vector<unsigned char>& vExtHeader = block.vtx[0]->vin[0].scriptWitness.stack.at(0);
         if (nHeight != (int32_t)ReadLE32(&vExtHeader[0]))
             return state.DoS(100, false, REJECT_INVALID, "bad-blk-height-match", false, "block height commitment mismatch");
+        if (vExtHeader.size() > 152 && VersionBitsState(pindexPrev, consensusParams, Consensus::DEPLOYMENT_EXTHEADER, versionbitscache) != THRESHOLD_ACTIVE)
+            return state.DoS(100, false, REJECT_INVALID, "bad-extheader-size", true, strprintf("%s : invalid extended header size", __func__));
         return true;
     }
 
