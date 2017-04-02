@@ -282,7 +282,7 @@ BOOST_AUTO_TEST_CASE(updatecoins_simulation_test)
                 else {
                     coinbaseids.insert(tx.GetHash());
                 }
-                assert(CTransaction(tx).IsCoinBase());
+                assert(CTransaction(tx).IsCoinBase(false));
             }
 
             // 17/20 times reconnect previous or add a regular tx
@@ -294,14 +294,14 @@ BOOST_AUTO_TEST_CASE(updatecoins_simulation_test)
                     TxData &txd = FindRandomFrom(disconnectedids);
                     tx = std::get<0>(txd);
                     prevouthash = tx.vin[0].prevout.hash;
-                    if (!CTransaction(tx).IsCoinBase() && !utxoset.count(prevouthash)) {
+                    if (!CTransaction(tx).IsCoinBase(false) && !utxoset.count(prevouthash)) {
                         disconnectedids.erase(tx.GetHash());
                         continue;
                     }
 
                     // If this tx is already IN the UTXO, then it must be a coinbase, and it must be a duplicate
                     if (utxoset.count(tx.GetHash())) {
-                        assert(CTransaction(tx).IsCoinBase());
+                        assert(CTransaction(tx).IsCoinBase(false));
                         assert(duplicateids.count(tx.GetHash()));
                     }
                     disconnectedids.erase(tx.GetHash());
@@ -315,7 +315,7 @@ BOOST_AUTO_TEST_CASE(updatecoins_simulation_test)
                     // Construct the tx to spend the coins of prevouthash
                     tx.vin[0].prevout.hash = prevouthash;
                     tx.vin[0].prevout.n = 0;
-                    assert(!CTransaction(tx).IsCoinBase());
+                    assert(!CTransaction(tx).IsCoinBase(false));
                 }
                 // In this simple test coins only have two states, spent or unspent, save the unspent state to restore
                 oldcoins = result[prevouthash];
@@ -358,7 +358,7 @@ BOOST_AUTO_TEST_CASE(updatecoins_simulation_test)
             // Remove new outputs
             result[undohash].Clear();
             // If not coinbase restore prevout
-            if (!tx.IsCoinBase()) {
+            if (!tx.IsCoinBase(false)) {
                 result[tx.vin[0].prevout.hash] = origcoins;
             }
 
@@ -370,7 +370,7 @@ BOOST_AUTO_TEST_CASE(updatecoins_simulation_test)
                 outs->Clear();
             }
             // restore inputs
-            if (!tx.IsCoinBase()) {
+            if (!tx.IsCoinBase(false)) {
                 const COutPoint &out = tx.vin[0].prevout;
                 const CTxInUndo &undoin = undo.vprevout[0];
                 ApplyTxInUndo(undoin, *(stack.back()), out);
@@ -380,7 +380,7 @@ BOOST_AUTO_TEST_CASE(updatecoins_simulation_test)
 
             // Update the utxoset
             utxoset.erase(undohash);
-            if (!tx.IsCoinBase())
+            if (!tx.IsCoinBase(false))
                 utxoset.insert(tx.vin[0].prevout.hash);
         }
 

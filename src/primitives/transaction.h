@@ -125,6 +125,16 @@ public:
         return !(a == b);
     }
 
+    bool IsCoinBase() const
+    {
+        /*
+         * For hardfork only. An input is considered as coinbase input if the prevout hash is not null, which the n is
+         * 0xffffffff. Such prevout must be invalid for non-coinbase input because the previous transaction would be at
+         * least 38GB (2^32 * 9)
+         */
+        return (prevout.n == (uint32_t) -1);
+    }
+
     std::string ToString() const;
 };
 
@@ -377,8 +387,14 @@ public:
      */
     unsigned int GetTotalSize() const;
 
-    bool IsCoinBase() const
+    bool IsCoinBase(const bool& hardfork) const
     {
+        /*
+         * A new coinbase transaction format requires the prevout of the first input must be null hash or hash of
+         * the previous block, with an n of 0xffffffff. It may have additional inputs.
+         */
+        if (hardfork && vin.size() > 0 && vin[0].IsCoinBase())
+            return true;
         return (vin.size() == 1 && vin[0].prevout.IsNull());
     }
 

@@ -552,8 +552,10 @@ void CWallet::AddToSpends(const uint256& wtxid)
     if (thisTx.IsCoinBase()) // Coinbases don't spend anything!
         return;
 
-    BOOST_FOREACH(const CTxIn& txin, thisTx.tx->vin)
-        AddToSpends(txin.prevout, wtxid);
+    BOOST_FOREACH(const CTxIn& txin, thisTx.tx->vin) {
+        if (!txin.IsCoinBase())
+            AddToSpends(txin.prevout, wtxid);
+    }
 }
 
 bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
