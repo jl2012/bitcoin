@@ -2824,11 +2824,29 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
     if (!CheckBlockHeader(block, state, consensusParams, fCheckPOW))
         return false;
 
+    bool hardforkEnabled = consensusParams.HardForkTime >= 0 && block.nTime > consensusParams.HardForkTime && block.nVersion & HARDFORK_VERSION_BIT;
+    uint256 hashMerkleRoot;
+    std::vector<unsigned char> vExtHeader;
+    if (hardforkEnabled) {
+        if (block.vtx.empty() || block.vtx[0]->vin.empty() || block.vtx[0]->vin[0].scriptWitness.stack.size() != 1)
+            return state.DoS(100, false, REJECT_INVALID, "bad-extheader-size", true, strprintf("%s : invalid extended header size", __func__));
+        vExtHeader = block.vtx[0]->vin[0].scriptWitness.stack[0];
+        if (vExtHeader.size() < 138 || vExtHeader[4] || vExtHeader[5])
+            return state.DoS(100, false, REJECT_INVALID, "bad-extheader-size", true, strprintf("%s : invalid extended header size", __func__));
+        uint256 hashExtHeader;
+        CHash256().Write(&vExtHeader[0], vExtHeader.size()).Finalize(hashExtHeader.begin());
+        if (block.hashMerkleRoot != hashExtHeader)
+            return state.DoS(100, false, REJECT_INVALID, "bad-extheader-commitment", true, "Extended header commitment mismatch");
+        memcpy(hashMerkleRoot.begin(), &vExtHeader[6], 32);
+    }
+    else
+        hashMerkleRoot = block.hashMerkleRoot;
+
     // Check the merkle root.
     if (fCheckMerkleRoot) {
         bool mutated;
         uint256 hashMerkleRoot2 = BlockMerkleRoot(block, &mutated);
-        if (block.hashMerkleRoot != hashMerkleRoot2)
+        if (hashMerkleRoot != hashMerkleRoot2)
             return state.DoS(100, false, REJECT_INVALID, "bad-txnmrklroot", true, "hashMerkleRoot mismatch");
 
         // Check for merkle tree malleability (CVE-2012-2459): repeating sequences
@@ -2836,6 +2854,14 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
         // while still invalidating it.
         if (mutated)
             return state.DoS(100, false, REJECT_INVALID, "bad-txns-duplicate", true, "duplicate transaction");
+
+        if (hardforkEnabled) {
+            if (block.vtx.size() != ReadLE32(&vExtHeader[0]))
+                return state.DoS(100, false, REJECT_INVALID, "bad-blk-length-match", false, "tx count commitment mismatch");
+            uint256 hashWitnessMerkleRoot = BlockWitnessMerkleRoot(block, &mutated);
+            if (memcmp(hashWitnessMerkleRoot.begin(), &vExtHeader[38], 32))
+                return state.DoS(100, false, REJECT_INVALID, "bad-witness-merkle-match", true, strprintf("%s : witness merkle commitment mismatch", __func__));
+        }
     }
 
     // All potential-corruption validation must be done before we do any
@@ -2892,7 +2918,13 @@ static bool CheckIndexAgainstCheckpoint(const CBlockIndex* pindexPrev, CValidati
 bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
 {
     LOCK(cs_main);
-    return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE);
+    return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE || IsHardForkEnabled(pindexPrev, params));
+}
+
+bool IsHardForkEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+{
+    AssertLockHeld(cs_main);
+    return (params.HardForkTime >= 0 && pindexPrev && pindexPrev->GetMedianTimePast() >= params.HardForkTime && pindexPrev->nHeight >= params.BIP65Height);
 }
 
 // Compute at which vout of the block's coinbase transaction the witness
@@ -2953,6 +2985,7 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
 {
     assert(pindexPrev != NULL);
     const int nHeight = pindexPrev->nHeight + 1;
+    const bool hardforkEnabled = IsHardForkEnabled(pindexPrev, consensusParams);
     // Check proof of work
     if (block.nBits != GetNextWorkRequired(pindexPrev, &block, consensusParams))
         return state.DoS(100, false, REJECT_INVALID, "bad-diffbits", false, "incorrect proof of work");
@@ -2964,6 +2997,13 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
     // Check timestamp
     if (block.GetBlockTime() > nAdjustedTime + MAX_FUTURE_BLOCK_TIME)
         return state.Invalid(false, REJECT_INVALID, "time-too-new", "block timestamp too far in the future");
+
+    if (hardforkEnabled) {
+        if (block.nVersion & HARDFORK_VERSION_BIT)
+            return true;
+        return state.Invalid(false, REJECT_OBSOLETE, strprintf("bad-version(0x%08x)", block.nVersion),
+                             strprintf("rejected nVersion=0x%08x block", block.nVersion));
+    }
 
     // Reject outdated version blocks when 95% (75% on testnet) of the network has upgraded:
     // check for version 2, 3 and 4 upgrades
@@ -2979,6 +3019,7 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
 bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const Consensus::Params& consensusParams, const CBlockIndex* pindexPrev)
 {
     const int nHeight = pindexPrev == NULL ? 0 : pindexPrev->nHeight + 1;
+    const bool hardforkEnabled = IsHardForkEnabled(pindexPrev, consensusParams);
 
     // Start enforcing BIP113 (Median Time Past) using versionbits logic.
     int nLockTimeFlags = 0;
@@ -3005,6 +3046,13 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const Co
             !std::equal(expect.begin(), expect.end(), block.vtx[0]->vin[0].scriptSig.begin())) {
             return state.DoS(100, false, REJECT_INVALID, "bad-cb-height", false, "block height mismatch in coinbase");
         }
+    }
+
+    if (hardforkEnabled) {
+        const std::vector<unsigned char>& vExtHeader = block.vtx[0]->vin[0].scriptWitness.stack.at(0);
+        if (nHeight != (int32_t)ReadLE32(&vExtHeader[0]))
+            return state.DoS(100, false, REJECT_INVALID, "bad-blk-height-match", false, "block height commitment mismatch");
+        return true;
     }
 
     // Validation for witness commitments.
