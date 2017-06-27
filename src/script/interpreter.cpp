@@ -394,6 +394,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     if (!checker.CheckLockTime(nLockTime))
                         return set_error(serror, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
 
+                    if (!fIsLegacy)
+                        popstack(stack);
+
                     break;
                 }
 
@@ -430,6 +433,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     // Compare the specified sequence number with the input.
                     if (!checker.CheckSequence(nSequence))
                         return set_error(serror, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
+
+                    if (!fIsLegacy)
+                        popstack(stack);
 
                     break;
                 }
