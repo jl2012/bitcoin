@@ -74,7 +74,7 @@ class BIP91Test(BitcoinTestFramework):
 
 
         # Test 3
-        # 28 out of 48 signal bit 4 to achieve LOCKED_IN
+        # 29 out of 48 signal bit 4 to achieve LOCKED_IN
         self.generate_blocks(20, 0x20000010) # signalling bit 4
         self.generate_blocks(9, 0x20000012) # signalling bit 1 and 4
         self.generate_blocks(10, 0x20000002) # signalling bit 1
