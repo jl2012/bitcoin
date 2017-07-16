@@ -99,6 +99,8 @@ static ScriptErrorDesc script_errors[]={
     {SCRIPT_ERR_WITNESS_UNEXPECTED, "WITNESS_UNEXPECTED"},
     {SCRIPT_ERR_WITNESS_PUBKEYTYPE, "WITNESS_PUBKEYTYPE"},
     {SCRIPT_ERR_INVALID_MS_STACK, "INVALID_MS_STACK"},
+    {SCRIPT_ERR_SIG_COMPACT, "SIG_COMPACT"},
+    {SCRIPT_ERR_UNCOVERED_SCRIPTWITCODE, "UNCOVERED_SCRIPTWITCODE"},
 };
 
 const char *FormatScriptError(ScriptError_t err)
@@ -354,7 +356,9 @@ public:
 
     TestBuilder& PushSig(const CKey& key, int nHashType = SIGHASH_ALL, unsigned int lenR = 32, unsigned int lenS = 32, SigVersion sigversion = SIGVERSION_BASE, CAmount amount = 0, CAmount nFees = 0)
     {
-        uint256 hash = SignatureHash(script, spendTx, 0, nHashType, amount, nFees, sigversion);
+        CPubKey pubkey;
+        std::vector<CScript> vscriptWitCode;
+        uint256 hash = SignatureHash(script, vscriptWitCode, spendTx, 0, nHashType, amount, nFees, sigversion);
         std::vector<unsigned char> vchSig, r, s;
         uint32_t iter = 0;
         do {
@@ -1022,7 +1026,9 @@ BOOST_AUTO_TEST_CASE(script_PushData)
 CScript
 sign_multisig(CScript scriptPubKey, std::vector<CKey> keys, CTransaction transaction)
 {
-    uint256 hash = SignatureHash(scriptPubKey, transaction, 0, SIGHASH_ALL, 0, 0, SIGVERSION_BASE);
+    CPubKey pubkey;
+    std::vector<CScript> vscriptWitCode;
+    uint256 hash = SignatureHash(scriptPubKey, vscriptWitCode, transaction, 0, SIGHASH_ALL, 0, 0, SIGVERSION_BASE);
 
     CScript result;
     //
@@ -1217,16 +1223,18 @@ BOOST_AUTO_TEST_CASE(script_combineSigs)
     BOOST_CHECK(combined.scriptSig == scriptSig);
 
     // A couple of partially-signed versions:
+    CPubKey pubkey;
+    std::vector<CScript> vscriptWitCode;
     std::vector<unsigned char> sig1;
-    uint256 hash1 = SignatureHash(scriptPubKey, txTo, 0, SIGHASH_ALL, 0, 0, SIGVERSION_BASE);
+    uint256 hash1 = SignatureHash(scriptPubKey, vscriptWitCode, txTo, 0, SIGHASH_ALL, 0, 0, SIGVERSION_BASE);
     BOOST_CHECK(keys[0].Sign(hash1, sig1));
     sig1.push_back(SIGHASH_ALL);
     std::vector<unsigned char> sig2;
-    uint256 hash2 = SignatureHash(scriptPubKey, txTo, 0, SIGHASH_NONE, 0, 0, SIGVERSION_BASE);
+    uint256 hash2 = SignatureHash(scriptPubKey, vscriptWitCode, txTo, 0, SIGHASH_NONE, 0, 0, SIGVERSION_BASE);
     BOOST_CHECK(keys[1].Sign(hash2, sig2));
     sig2.push_back(SIGHASH_NONE);
     std::vector<unsigned char> sig3;
-    uint256 hash3 = SignatureHash(scriptPubKey, txTo, 0, SIGHASH_SINGLE, 0, 0, SIGVERSION_BASE);
+    uint256 hash3 = SignatureHash(scriptPubKey, vscriptWitCode, txTo, 0, SIGHASH_SINGLE, 0, 0, SIGVERSION_BASE);
     BOOST_CHECK(keys[2].Sign(hash3, sig3));
     sig3.push_back(SIGHASH_SINGLE);
 

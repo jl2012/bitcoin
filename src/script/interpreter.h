@@ -27,6 +27,92 @@ enum
     SIGHASH_ANYONECANPAY = 0x80,
 };
 
+enum
+{
+    /*  In order to minimize the signature size for the default type (SIGHASH_MSV0_ALL), a SIGHASH_MSV0 flag is set
+     *  only if a user wants to skip the signing of some transaction components.
+     *
+     *  Shorthards for signing all/none of the followings. WARNING: a SIGHASH_MSV0_NONE signature effectively allows
+     *  anyone to spend all existing and future MSV0 UTXOs related to the public key, unless it is also protected by
+     *  other methods such as multi-sig.
+     */
+    SIGHASH_MSV0_ALL = 0,
+    SIGHASH_MSV0_NONE = 0xffff,
+
+    /*
+     *  The bit 0 and 1 indicates signing for the input prevout
+     *
+     *  Value    prevout      value
+     *  =====    ==========   ==========
+     *  00       All          This input
+     *  01       This input   This input
+     *  10       No           This input
+     *  11       No           No
+     *
+     *  WARNING: signatures with SIGHASH_MSV0_NOINPUT or SIGHASH_MSV0_NOINPUT_NOVALUE are replayable and might lead to
+     *  unexpected fund loss in case of public key reuse. If the signatures are not properly restricted by other flags,
+     *  the effect would be similar to that of SIGHASH_MSV0_NONE
+     */
+    SIGHASH_MSV0_SINGLEINPUT = 1,
+    SIGHASH_MSV0_NOINPUT = 2,
+    SIGHASH_MSV0_NOINPUT_NOVALUE = 3,
+
+    /*
+     *  The bit 2 and 3 indicates signing for the input nSequence
+     *
+     *  Value    nSequence
+     *  =====    ==========
+     *  00       All
+     *  01       This input
+     *  10       Invalid
+     *  11       No
+     *
+     *  Evaluation will fail if the bits are set to "10"
+     */
+    SIGHASH_MSV0_SINGLESEQUENCE = 4,
+    SIGHASH_MSV0_NOSEQUENCE = 0xc,
+
+    /*
+     *  The bit 4 and 5 indicates signing for the output
+     *
+     *  Value    scriptPubKey               value
+     *  =====    ========================   ========================
+     *  00       All                        All
+     *  01       Same index of this input   Same index of this input
+     *  10       Same index of this input   No
+     *  11       No                         No
+     *
+     *  For SIGHASH_MSV0_SINGLEOUTPUT and SIGHASH_MSV0_SINGLEOUTPUT_NOVALUE,
+     *  evaluation will fail if there is no matching output.
+     */
+    SIGHASH_MSV0_SINGLEOUTPUT = 0x10,
+    SIGHASH_MSV0_SINGLEOUTPUT_NOVALUE = 0x20,
+    SIGHASH_MSV0_NOOUTPUT = 0x30,
+
+    /*
+     *  Whether signing the input index. In the original (SIGVERSION_BASE) format, input index is implied by the
+     *  position of scriptCode. The SIGHASH_MSV0_NOINPUTINDEX flag allows users to explicitly indicate whether the input
+     *  index should be signed. Setting this flags makes the signature valid for any input index in the same/different
+     *  transaction, depending on the use of the other flags.
+     */
+    SIGHASH_MSV0_NOINPUTINDEX = 0x40,
+
+    SIGHASH_MSV0_NOFEE = 0x80,                 // Whether signing the amount of transaction fees
+    SIGHASH_MSV0_NOSCRIPTCODE = 0x100,         // Whether signing the scriptCode (as defined in BIP143)
+    SIGHASH_MSV0_NOVERSION = 0x200,            // Whether signing the transaction nVersion
+    SIGHASH_MSV0_NOLOCKTIME = 0x400,           // Whether signing the transaction nLockTime
+
+    /*
+     *  Whether signing the different scriptWitCode. For example, SIGHASH_MSV0_NOSCRIPTWITCODE0 refers to the first
+     *  script in the vscriptWitCode vector (the last executed scriptWitCode).
+     */
+    SIGHASH_MSV0_NOSCRIPTWITCODE0 = 0x800,
+    SIGHASH_MSV0_NOSCRIPTWITCODE1 = 0x1000,
+    SIGHASH_MSV0_NOSCRIPTWITCODE2 = 0x2000,
+    SIGHASH_MSV0_NOSCRIPTWITCODE3 = 0x4000,
+    SIGHASH_MSV0_NOSCRIPTWITCODE4 = 0x8000
+};
+
 /** Script verification flags */
 enum
 {
@@ -112,8 +198,6 @@ enum
     SCRIPT_VERIFY_MSV0 = (1U << 16),
 };
 
-bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);
-
 struct PrecomputedTransactionData
 {
     uint256 hashPrevouts, hashSequence, hashOutputs;
@@ -128,12 +212,14 @@ enum SigVersion
     SIGVERSION_MSV0 = 2,
 };
 
-uint256 SignatureHash(const CScript &scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType, const CAmount& amount, const CAmount& nFees, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr);
+bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, const SigVersion &sigversion, ScriptError* serror);
+
+uint256 SignatureHash(const CScript &scriptCode, std::vector<CScript> vscriptWitCode, const CTransaction& txTo, unsigned int nIn, unsigned int nHashType, const CAmount& amount, const CAmount& nFees, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr);
 
 class BaseSignatureChecker
 {
 public:
-    virtual bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
+    virtual bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, const std::vector<CScript>& vscriptWitCode) const
     {
         return false;
     }
@@ -161,12 +247,12 @@ private:
     const PrecomputedTransactionData* txdata;
 
 protected:
-    virtual bool VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& vchPubKey, const uint256& sighash) const;
+    virtual bool VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& vchPubKey, const uint256& sighash, const bool& compact) const;
 
 public:
     TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const CAmount& nFeesIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), nFees(nFeesIn), txdata(nullptr) {}
     TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const CAmount& nFeesIn, const PrecomputedTransactionData& txdataIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), nFees(nFeesIn), txdata(&txdataIn) {}
-    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override;
+    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, const std::vector<CScript>& vscriptWitCode) const override;
     bool CheckLockTime(const CScriptNum& nLockTime) const override;
     bool CheckSequence(const CScriptNum& nSequence) const override;
 };
@@ -181,7 +267,7 @@ public:
 };
 
 bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* error = nullptr);
-bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, int& nOpCount, ScriptError* error = nullptr);
+bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, int& nOpCount, const std::vector<CScript>& vscriptWitCode, const size_t& posScriptWitCode, unsigned int& fUncoveredScriptWitCode, ScriptError* serror = nullptr);
 bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror = nullptr);
 
 size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags);

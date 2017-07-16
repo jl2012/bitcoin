@@ -164,7 +164,7 @@ static int ecdsa_signature_parse_der_lax(const secp256k1_context* ctx, secp256k1
     return 1;
 }
 
-bool CPubKey::Verify(const uint256 &hash, const std::vector<unsigned char>& vchSig) const {
+bool CPubKey::Verify(const uint256 &hash, const std::vector<unsigned char>& vchSig, const bool& compact) const {
     if (!IsValid())
         return false;
     secp256k1_pubkey pubkey;
@@ -172,7 +172,10 @@ bool CPubKey::Verify(const uint256 &hash, const std::vector<unsigned char>& vchS
     if (!secp256k1_ec_pubkey_parse(secp256k1_context_verify, &pubkey, &(*this)[0], size())) {
         return false;
     }
-    if (!ecdsa_signature_parse_der_lax(secp256k1_context_verify, &sig, vchSig.data(), vchSig.size())) {
+    if (!compact && !ecdsa_signature_parse_der_lax(secp256k1_context_verify, &sig, vchSig.data(), vchSig.size())) {
+        return false;
+    }
+    if (compact && !secp256k1_ecdsa_signature_parse_compact(secp256k1_context_verify, &sig, vchSig.data())) {
         return false;
     }
     /* libsecp256k1's ECDSA verification requires lower-S signatures, which have
@@ -269,9 +272,12 @@ bool CExtPubKey::Derive(CExtPubKey &out, unsigned int _nChild) const {
     return pubkey.Derive(out.pubkey, out.chaincode, _nChild, chaincode);
 }
 
-/* static */ bool CPubKey::CheckLowS(const std::vector<unsigned char>& vchSig) {
+/* static */ bool CPubKey::CheckLowS(const std::vector<unsigned char>& vchSig, const bool& compact) {
     secp256k1_ecdsa_signature sig;
-    if (!ecdsa_signature_parse_der_lax(secp256k1_context_verify, &sig, vchSig.data(), vchSig.size())) {
+    if (!compact && !ecdsa_signature_parse_der_lax(secp256k1_context_verify, &sig, vchSig.data(), vchSig.size())) {
+        return false;
+    }
+    if (compact && !secp256k1_ecdsa_signature_parse_compact(secp256k1_context_verify, &sig, vchSig.data())) {
         return false;
     }
     return (!secp256k1_ecdsa_signature_normalize(secp256k1_context_verify, nullptr, &sig));

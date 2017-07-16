@@ -92,25 +92,25 @@ BOOST_AUTO_TEST_CASE(key_test1)
         BOOST_CHECK(key1C.Sign(hashMsg, sign1C));
         BOOST_CHECK(key2C.Sign(hashMsg, sign2C));
 
-        BOOST_CHECK( pubkey1.Verify(hashMsg, sign1));
-        BOOST_CHECK(!pubkey1.Verify(hashMsg, sign2));
-        BOOST_CHECK( pubkey1.Verify(hashMsg, sign1C));
-        BOOST_CHECK(!pubkey1.Verify(hashMsg, sign2C));
+        BOOST_CHECK( pubkey1.Verify(hashMsg, sign1, false));
+        BOOST_CHECK(!pubkey1.Verify(hashMsg, sign2, false));
+        BOOST_CHECK( pubkey1.Verify(hashMsg, sign1C, false));
+        BOOST_CHECK(!pubkey1.Verify(hashMsg, sign2C, false));
 
-        BOOST_CHECK(!pubkey2.Verify(hashMsg, sign1));
-        BOOST_CHECK( pubkey2.Verify(hashMsg, sign2));
-        BOOST_CHECK(!pubkey2.Verify(hashMsg, sign1C));
-        BOOST_CHECK( pubkey2.Verify(hashMsg, sign2C));
+        BOOST_CHECK(!pubkey2.Verify(hashMsg, sign1, false));
+        BOOST_CHECK( pubkey2.Verify(hashMsg, sign2, false));
+        BOOST_CHECK(!pubkey2.Verify(hashMsg, sign1C, false));
+        BOOST_CHECK( pubkey2.Verify(hashMsg, sign2C, false));
 
-        BOOST_CHECK( pubkey1C.Verify(hashMsg, sign1));
-        BOOST_CHECK(!pubkey1C.Verify(hashMsg, sign2));
-        BOOST_CHECK( pubkey1C.Verify(hashMsg, sign1C));
-        BOOST_CHECK(!pubkey1C.Verify(hashMsg, sign2C));
+        BOOST_CHECK( pubkey1C.Verify(hashMsg, sign1, false));
+        BOOST_CHECK(!pubkey1C.Verify(hashMsg, sign2, false));
+        BOOST_CHECK( pubkey1C.Verify(hashMsg, sign1C, false));
+        BOOST_CHECK(!pubkey1C.Verify(hashMsg, sign2C, false));
 
-        BOOST_CHECK(!pubkey2C.Verify(hashMsg, sign1));
-        BOOST_CHECK( pubkey2C.Verify(hashMsg, sign2));
-        BOOST_CHECK(!pubkey2C.Verify(hashMsg, sign1C));
-        BOOST_CHECK( pubkey2C.Verify(hashMsg, sign2C));
+        BOOST_CHECK(!pubkey2C.Verify(hashMsg, sign1, false));
+        BOOST_CHECK( pubkey2C.Verify(hashMsg, sign2, false));
+        BOOST_CHECK(!pubkey2C.Verify(hashMsg, sign1C, false));
+        BOOST_CHECK( pubkey2C.Verify(hashMsg, sign2C, false));
 
         // compact signatures (with key recovery)
 

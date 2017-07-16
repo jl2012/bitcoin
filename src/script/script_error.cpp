@@ -91,6 +91,10 @@ const char* ScriptErrorString(const ScriptError serror)
             return "Using non-compressed keys in segwit";
         case SCRIPT_ERR_INVALID_MS_STACK:
             return "Invalid merklized script stack";
+        case SCRIPT_ERR_SIG_COMPACT:
+            return "Invalid compact signature";
+        case SCRIPT_ERR_UNCOVERED_SCRIPTWITCODE:
+            return "scriptWitCode not covered by signature";
         case SCRIPT_ERR_UNKNOWN_ERROR:
         case SCRIPT_ERR_ERROR_COUNT:
         default: break;
