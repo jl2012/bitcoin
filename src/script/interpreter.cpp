@@ -709,6 +709,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 }
                 break;
 
+                //
+                // String operators
+                //
 
                 case OP_SIZE:
                 {
@@ -720,10 +723,162 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 }
                 break;
 
+                case OP_CAT:
+                {
+                    if (stack.size() < 2)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                    valtype vch1 = stacktop(-2);
+                    valtype vch2 = stacktop(-1);
+
+                    if (vch1.size() + vch2.size() > MAX_SCRIPT_ELEMENT_SIZE)
+                        return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+
+                    valtype vch3;
+                    vch3.reserve(vch1.size() + vch2.size());
+                    vch3.insert(vch3.end(), vch1.begin(), vch1.end());
+                    vch3.insert(vch3.end(), vch2.begin(), vch2.end());
+
+                    popstack(stack);
+                    popstack(stack);
+                    stack.push_back(vch3);
+                }
+                break;
+
+                case OP_LEFT:
+                case OP_RIGHT:
+                {
+                    if (stack.size() < 2)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    valtype vch1 = stacktop(-2);
+                    CScriptNum start(stacktop(-1), fRequireMinimal);
+
+                    if (start < 0)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    valtype vch2;
+                    switch (opcode) {
+                        case OP_RIGHT:
+                        {
+                            if (start >= vch1.size())
+                                vch2 = vchFalse;
+                            else
+                                vch2.insert(vch2.begin(), vch1.begin() + start.getint(), vch1.end());
+                            break;
+                        }
+                        case OP_LEFT:
+                        {
+                            if (start >= vch1.size())
+                                vch2 = vch1;
+                            else
+                                vch2.insert(vch2.begin(), vch1.begin(), vch1.begin() + start.getint());
+                            break;
+                        }
+                        default:
+                        {
+                            assert(!"invalid opcode");
+                            break;
+                        }
+                    }
+                    popstack(stack);
+                    popstack(stack);
+                    stack.push_back(vch2);
+                }
+                break;
+
+                case OP_SUBSTR:
+                {
+                    if (stack.size() < 3)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    valtype vch1 = stacktop(-3);
+                    CScriptNum start(stacktop(-2), fRequireMinimal);
+                    CScriptNum length(stacktop(-1), fRequireMinimal);
+
+                    if (length < 0 || start < 0 || (start + length) > vch1.size())
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    valtype vch2;
+                    vch2.insert(vch2.begin(), vch1.begin() + start.getint(), vch1.begin() + (start + length).getint());
+
+                    popstack(stack);
+                    popstack(stack);
+                    popstack(stack);
+                    stack.push_back(vch2);
+                }
+                break;
 
                 //
                 // Bitwise logic
                 //
+                case OP_INVERT:
+                {
+                    // (in - out)
+                    if (stack.size() < 1)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                    valtype& vch = stacktop(-1);
+                    for (size_t i = 0; i < vch.size(); i++)
+                        vch[i] = ~vch[i];
+                }
+                break;
+
+                case OP_AND:
+                case OP_OR:
+                case OP_XOR:
+                {
+                    // (x1 x2 -- out)
+                    if (stack.size() < 2)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    if (stacktop(-1).size() < stacktop(-2).size())
+                        swap(stacktop(-1), stacktop(-2));
+
+                    valtype& vch1 = stacktop(-1);
+                    valtype& vch2 = stacktop(-2);
+
+                    valtype vch3(vch1);
+
+                    switch (opcode) {
+                        case OP_AND:
+                        {
+                            for (size_t i = 0; i < vch1.size(); i++) {
+                                if (i < vch2.size())
+                                    vch3[i] &= vch2[i];
+                                else
+                                    vch3[i] = 0;
+                            }
+                            break;
+                        }
+                        case OP_OR:
+                        {
+                            for (size_t i = 0; i < vch1.size(); i++) {
+                                if (i < vch2.size())
+                                    vch3[i] |= vch2[i];
+                            }
+                            break;
+                        }
+                        case OP_XOR:
+                        {
+                            for (size_t i = 0; i < vch1.size(); i++) {
+                                if (i < vch2.size())
+                                    vch3[i] ^= vch2[i];
+                                else
+                                    vch3[i] ^= (unsigned char)0;
+                            }
+                            break;
+                        }
+                        default:
+                        {
+                            assert(!"invalid opcode");
+                            break;
+                        }
+                    }
+                    popstack(stack);
+                    popstack(stack);
+                    stack.push_back(vch3);
+                }
+                break;
+
                 case OP_EQUAL:
                 case OP_EQUALVERIFY:
                 //case OP_NOTEQUAL: // use OP_NUMNOTEQUAL
@@ -752,12 +907,100 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 }
                 break;
 
+                case OP_RSHIFT:
+                {
+                    if (stack.size() < 2)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                    valtype vch1 = stacktop(-2);
+                    CScriptNum bn(stacktop(-1), fRequireMinimal);
+
+                    if (bn < 0)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    unsigned int full_bytes = bn.getint() / 8;
+                    unsigned int bits = bn.getint() % 8;
+
+                    if (full_bytes >= vch1.size()) {
+                        popstack(stack);
+                        popstack(stack);
+                        stack.push_back(vchFalse);
+                        break;
+                    }
+
+                    valtype vch2;
+                    vch2.insert(vch2.begin(), vch1.begin() + full_bytes, vch1.end());
+
+                    uint16_t temp = 0;
+                    for (int i=(vch2.size()-1);i>=0;--i) {
+                        temp = (vch2[i] << (8 - bits)) | ((temp << 8) & 0xff00);
+                        vch2[i] = (temp & 0xff00) >> 8;
+                    }
+
+                    // 0x0fff >> 4 == 0x00ff or 0xff, reduce to minimal representation
+                    while (!vch2.empty() && vch2.back() == 0)
+                        vch2.pop_back();
+
+                    popstack(stack);
+                    popstack(stack);
+                    stack.push_back(vch2);
+                }
+                break;
+
+                case OP_LSHIFT:
+                {
+                    if (stack.size() < 2)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                    valtype vch1 = stacktop(-2);
+                    CScriptNum bn(stacktop(-1), fRequireMinimal);
+
+                    if (bn < 0)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    // reduce input to minimal representation
+                    while (!vch1.empty() && vch1.back() == 0)
+                        vch1.pop_back();
+
+                    if (vch1.size() == 0) {
+                        popstack(stack);
+                        popstack(stack);
+                        stack.push_back(vch1);
+                        break;
+                    }
+
+                    unsigned int full_bytes = bn.getint() / 8;
+                    unsigned int bits = bn.getint() % 8;
+
+                    if (vch1.size() + full_bytes + (bits ? 1 : 0) > MAX_SCRIPT_ELEMENT_SIZE)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    valtype vch2;
+                    vch2.reserve(vch1.size() + full_bytes + 1);
+                    vch2.insert(vch2.end(), full_bytes, 0);
+                    vch2.insert(vch2.end(), vch1.begin(), vch1.end());
+                    vch2.insert(vch2.end(), 1, 0);
+
+                    uint16_t temp = 0;
+                    for (size_t i=0;i<vch2.size();++i) {
+                        temp = (vch2[i] << bits) | (temp >> 8);
+                        vch2[i] = temp & 0xff;
+                    }
+
+                    // reduce output to minimal representation
+                    while (!vch2.empty() && vch2.back() == 0)
+                        vch2.pop_back();
+
+                    popstack(stack);
+                    popstack(stack);
+                    stack.push_back(vch2);
+                }
+                break;
 
                 //
                 // Numeric
                 //
                 case OP_1ADD:
                 case OP_1SUB:
+                case OP_2MUL:
                 case OP_NEGATE:
                 case OP_ABS:
                 case OP_NOT:
@@ -771,6 +1014,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     {
                     case OP_1ADD:       bn += bnOne; break;
                     case OP_1SUB:       bn -= bnOne; break;
+                    case OP_2MUL:       bn += bn; break;
                     case OP_NEGATE:     bn = -bn; break;
                     case OP_ABS:        if (bn < bnZero) bn = -bn; break;
                     case OP_NOT:        bn = (bn == bnZero); break;
@@ -859,6 +1103,92 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 }
                 break;
 
+                case OP_MUL:
+                {
+                    if (stack.size() < 2)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    CScriptNum bn1(stacktop(-2), fRequireMinimal, 7);
+                    CScriptNum bn2(stacktop(-1), fRequireMinimal, 7);
+
+                    popstack(stack);
+                    popstack(stack);
+                    if (bn1 == bnZero || bn2 == bnZero) {
+                        stack.push_back(vchFalse);
+                        break;
+                    }
+
+                    bool negative = false;
+                    if (bn1 < bnZero) {
+                        negative = true;
+                        bn1 = -bn1;
+                    }
+                    if (bn2 < bnZero) {
+                        negative = !negative;
+                        bn2 = -bn2;
+                    }
+
+                    uint64_t n1 = bn1.getint64();
+                    uint64_t n2 = bn2.getint64();
+                    const uint64_t mul = n1 * n2;
+                    if (mul / n1 != n2 || mul >= (1ULL << 55))
+                        return set_error(serror, SCRIPT_ERR_NUM_PUSH_SIZE);
+                    CScriptNum bnRet(mul);
+
+                    if (negative)
+                        bnRet = -bnRet;
+
+                    stack.push_back(bnRet.getvch());
+                }
+                break;
+
+                case OP_2DIV:
+                case OP_DIV:
+                case OP_MOD:
+                {
+                    if (opcode == OP_2DIV) {
+                        CScriptNum bnTwo(2);
+                        stack.push_back(bnTwo.getvch());
+                    }
+                    if (stack.size() < 2)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                    CScriptNum bn1(stacktop(-2), fRequireMinimal, 7);
+                    CScriptNum bn2(stacktop(-1), fRequireMinimal, 7);
+                    bool negativediv = false;
+                    bool negativemod = false;
+
+                    if (bn2 == bnZero)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    if (bn1 < bnZero) {
+                        negativediv = true;
+                        negativemod = true;
+                        bn1 = -bn1;
+                    }
+                    if (bn2 < bnZero) {
+                        negativediv = !negativediv;
+                        bn2 = -bn2;
+                    }
+
+                    const uint64_t n1 = bn1.getint64();
+                    const uint64_t n2 = bn2.getint64();
+
+                    CScriptNum bnRet(0);
+                    if (opcode == OP_MOD) {
+                        bnRet = n1 % n2;
+                        if (negativemod)
+                            bnRet = -bnRet;
+                    }
+                    else {
+                        bnRet = n1 / n2;
+                        if (negativediv)
+                            bnRet = -bnRet;
+                    }
+                    popstack(stack);
+                    popstack(stack);
+                    stack.push_back(bnRet.getvch());
+                }
+                break;
 
                 //
                 // Crypto
