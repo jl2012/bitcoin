@@ -95,6 +95,8 @@ const char* ScriptErrorString(const ScriptError serror)
             return "Invalid compact signature";
         case SCRIPT_ERR_UNCOVERED_SCRIPTWITCODE:
             return "scriptWitCode not covered by signature";
+        case SCRIPT_ERR_SIG_CHECKMULTISIG_FLAGS:
+            return "Invalid signature flags for OP_CHECKMULTISIG(VERIFY)";
         case SCRIPT_ERR_UNKNOWN_ERROR:
         case SCRIPT_ERR_ERROR_COUNT:
         default: break;

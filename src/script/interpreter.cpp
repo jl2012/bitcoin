@@ -1337,7 +1337,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 case OP_CHECKMULTISIG:
                 case OP_CHECKMULTISIGVERIFY:
                 {
-                    // ([sig ...] num_of_signatures [pubkey ...] num_of_pubkeys -- bool)
+                    // ([dummy/flag] [sig ...] num_of_signatures [pubkey ...] num_of_pubkeys -- bool)
 
                     int i = 1;
                     if ((int)stack.size() < i)
@@ -1346,9 +1346,6 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     int nKeysCount = CScriptNum(stacktop(-i), fRequireMinimal).getint();
                     if (nKeysCount < 0 || nKeysCount > MAX_PUBKEYS_PER_MULTISIG)
                         return set_error(serror, SCRIPT_ERR_PUBKEY_COUNT);
-                    nOpCount += nKeysCount;
-                    if (nOpCount > MAX_OPS_PER_SCRIPT)
-                        return set_error(serror, SCRIPT_ERR_OP_COUNT);
                     int ikey = ++i;
                     // ikey2 is the position of last non-signature item in the stack. Top stack item = 1.
                     // With SCRIPT_VERIFY_NULLFAIL, this is used for cleanup if operation fails.
@@ -1360,6 +1357,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     int nSigsCount = CScriptNum(stacktop(-i), fRequireMinimal).getint();
                     if (nSigsCount < 0 || nSigsCount > nKeysCount)
                         return set_error(serror, SCRIPT_ERR_SIG_COUNT);
+                    nOpCount += fIsLegacy ? nKeysCount : nSigsCount;
+                    if (nOpCount > MAX_OPS_PER_SCRIPT)
+                        return set_error(serror, SCRIPT_ERR_OP_COUNT);
                     int isig = ++i;
                     i += nSigsCount;
                     if ((int)stack.size() < i)
@@ -1378,6 +1378,74 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     }
 
                     bool fSuccess = true;
+
+                    if (!fIsLegacy) {
+                        // The previous dummy item becomes a bitmap of used pubkeys, encoded as CScriptNum
+                        int nFlag = CScriptNum(stacktop(-i), fRequireMinimal).getint();
+                        if (nFlag < 0)
+                            return set_error(serror, SCRIPT_ERR_SIG_CHECKMULTISIG_FLAGS);
+                        else if (nFlag == 0 && nSigsCount > 0)
+                            fSuccess = false;
+                        unsigned int uncovered = 0xffffffff;
+                        while (fSuccess && nFlag > 0) {
+                            if (ikey >= ikey2) {
+                                // ikey2 is the position for nSigsCount.
+                                // ikey >= ikey2 means the flags are out of the range of public keys
+                                return set_error(serror, SCRIPT_ERR_SIG_CHECKMULTISIG_FLAGS);
+                            }
+
+                            if (nFlag & 1) {
+                                if (isig >= i) {
+                                    // i is the position for the flag.
+                                    // isig >= i means the number of set bits is more than number of signatures
+                                    return set_error(serror, SCRIPT_ERR_SIG_CHECKMULTISIG_FLAGS);
+                                }
+
+                                valtype &vchSig = stacktop(-isig);
+                                valtype &vchPubKey = stacktop(-ikey);
+
+                                if (!CheckSignatureEncoding(vchSig, flags, sigversion, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror))
+                                    return false;
+
+                                if (!checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion, vscriptWitCode))
+                                    return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
+
+                                uncovered &= (GetCompactHashType(vchSig) >> 11);
+                                isig++;
+                            }
+                            nFlag >>= 1;
+                            ikey++;
+                        }
+
+                        if (fSuccess && isig != i)
+                            // Number of set bits is less than number of signatures
+                            return set_error(serror, SCRIPT_ERR_SIG_CHECKMULTISIG_FLAGS);
+
+                        while (i--) {
+                            // If the operation failed, we require that all signatures and the flag must be empty vector
+                            if (!fSuccess && !ikey2 && stacktop(-1).size())
+                                return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
+                            if (ikey2 > 0)
+                                ikey2--;
+                            popstack(stack);
+                        }
+                        if (fSuccess && fUncoveredScriptWitCode) {
+                            const uint32_t mask = ~((1U << posScriptWitCode) - 1);
+                            fUncoveredScriptWitCode &= (uncovered | mask);
+                        }
+
+                        stack.push_back(fSuccess ? vchTrue : vchFalse);
+
+                        if (opcode == OP_CHECKMULTISIGVERIFY)
+                        {
+                            if (fSuccess)
+                                popstack(stack);
+                            else
+                                return set_error(serror, SCRIPT_ERR_CHECKMULTISIGVERIFY);
+                        }
+                        break;
+                    }
+
                     while (fSuccess && nSigsCount > 0)
                     {
                         valtype& vchSig    = stacktop(-isig);
