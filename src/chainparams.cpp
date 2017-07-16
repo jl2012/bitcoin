@@ -106,6 +106,11 @@ public:
         // By default assume that the signatures in ancestors of this block are valid.
         consensus.defaultAssumeValid = uint256S("0x0000000000000000003b9ce759c2a087d52abc4266f8f4ebd6d768b89defa50a"); //477890
 
+        // Deployment of MSV0 (BIP114)
+        consensus.vDeployments[Consensus::DEPLOYMENT_MSV0].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_MSV0].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_MSV0].nTimeout = 0; // Never / undefined
+
         /**
          * The message start string is designed to be unlikely to occur in normal data.
          * The characters are rarely used upper ASCII, not valid as UTF-8, and produce
@@ -204,6 +209,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = 1462060800; // May 1st 2016
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = 1493596800; // May 1st 2017
 
+        // Deployment of MSV0 (BIP114)
+        consensus.vDeployments[Consensus::DEPLOYMENT_MSV0].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_MSV0].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_MSV0].nTimeout = 0;
+
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00000000000000000000000000000000000000000000002830dab7f76dbb7d63");
 
@@ -287,6 +297,9 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].bit = 1;
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = 0;
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = 999999999999ULL;
+        consensus.vDeployments[Consensus::DEPLOYMENT_MSV0].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_MSV0].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_MSV0].nTimeout = 999999999999ULL;
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
