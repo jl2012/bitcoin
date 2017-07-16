@@ -122,6 +122,8 @@ BASE_SCRIPTS= [
     'uptime.py',
     'resendwallettransactions.py',
     'minchainwork.py',
+    'msv0.py',
+    'vaultdemo.py',
 ]
 
 EXTENDED_SCRIPTS = [

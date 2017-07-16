@@ -7,7 +7,7 @@
 This file is modified from python-bitcoinlib.
 """
 
-from .mininode import CTransaction, CTxOut, sha256, hash256, uint256_from_str, ser_uint256, ser_string
+from .mininode import CTransaction, CTxOut, sha256, hash256, uint256_from_str, ser_uint256, ser_string, COutPoint
 from binascii import hexlify
 import hashlib
 
@@ -697,4 +697,101 @@ def SegwitVersion1SignatureHash(script, txTo, inIdx, hashtype, amount):
     ss += struct.pack("<i", txTo.nLockTime)
     ss += struct.pack("<I", hashtype)
 
+    return hash256(ss)
+
+# MSV0
+SIGHASH_MSV0_ALL = 0
+SIGHASH_MSV0_NONE = 0xffff
+SIGHASH_MSV0_SINGLEINPUT = 1
+SIGHASH_MSV0_NOINPUT = 2
+SIGHASH_MSV0_NOINPUT_NOVALUE = 3
+SIGHASH_MSV0_SINGLESEQUENCE = 4
+SIGHASH_MSV0_NOSEQUENCE = 0xc
+SIGHASH_MSV0_SINGLEOUTPUT = 0x10
+SIGHASH_MSV0_SINGLEOUTPUT_NOVALUE = 0x20
+SIGHASH_MSV0_NOOUTPUT = 0x30
+SIGHASH_MSV0_NOINPUTINDEX = 0x40
+SIGHASH_MSV0_NOFEE = 0x80
+SIGHASH_MSV0_NOSCRIPTCODE = 0x100
+SIGHASH_MSV0_NOVERSION = 0x200
+SIGHASH_MSV0_NOLOCKTIME = 0x400
+SIGHASH_MSV0_NOSCRIPTSIGCODE0 = 0x800
+SIGHASH_MSV0_NOSCRIPTSIGCODE1 = 0x1000
+SIGHASH_MSV0_NOSCRIPTSIGCODE2 = 0x2000
+SIGHASH_MSV0_NOSCRIPTSIGCODE3 = 0x4000
+SIGHASH_MSV0_NOSCRIPTSIGCODE4 = 0x8000
+MAX_MSV0_SCRIPTSIGCODE = 5
+
+def MSV0SignatureHash(script, vscriptSigCode, txTo, inIdx, hashtype, amount, fees):
+    assert (len(vscriptSigCode) == MAX_MSV0_SCRIPTSIGCODE)
+    nVersion = -1 if (hashtype & SIGHASH_MSV0_NOVERSION) else txTo.nVersion
+    nInputIndex = 0xffffffff if (hashtype & SIGHASH_MSV0_NOINPUTINDEX) else inIdx
+
+    hashPrevouts = 0
+    prevoutSingle = COutPoint(0, 0xffffffff)
+    if (not (hashtype & 3)):
+        serialize_prevouts = bytes()
+        for i in txTo.vin:
+            serialize_prevouts += i.prevout.serialize()
+        hashPrevouts = uint256_from_str(hash256(serialize_prevouts))
+    elif ((hashtype & 3) == SIGHASH_MSV0_SINGLEINPUT):
+        prevoutSingle = txTo.vin[inIdx].prevout
+
+    hashSequence = 0
+    sequenceSingle = 0xffffffff
+    if (not (hashtype & 0xc)):
+        serialize_sequence = bytes()
+        for i in txTo.vin:
+            serialize_sequence += struct.pack("<I", i.nSequence)
+        hashSequence = uint256_from_str(hash256(serialize_sequence))
+    elif ((hashtype & 0xc) == SIGHASH_MSV0_SINGLESEQUENCE):
+        sequenceSingle = txTo.vin[inIdx].nSequence
+
+    nAmount = -1 if ((hashtype & 3) == SIGHASH_MSV0_NOINPUT_NOVALUE) else amount
+
+    hashOutputs = 0
+    outputSingleValue = -1
+    outputSingleScript = CScript()
+    if (not (hashtype & 0x30)):
+        serialize_outputs = bytes()
+        for o in txTo.vout:
+            serialize_outputs += o.serialize()
+        hashOutputs = uint256_from_str(hash256(serialize_outputs))
+    elif ((hashtype & 0x30) != SIGHASH_MSV0_NOOUTPUT):
+        assert (inIdx < len(txTo.vout))
+        outputSingleScript = txTo.vout[inIdx].scriptPubKey
+        if ((hashtype & 0x30) == SIGHASH_MSV0_SINGLEOUTPUT):
+            outputSingleValue = txTo.vout[inIdx].nValue
+
+    nFees = -1 if (hashtype & SIGHASH_MSV0_NOFEE) else fees
+    nLockTime = 0xffffffff if (hashtype & SIGHASH_MSV0_NOLOCKTIME) else txTo.nLockTime
+
+    ss = bytes()
+    ss += struct.pack("<i", nVersion)
+    ss += struct.pack("<I", nInputIndex)
+    ss += ser_uint256(hashPrevouts)
+    ss += prevoutSingle.serialize()
+    ss += ser_uint256(hashSequence)
+    ss += struct.pack("<I", sequenceSingle)
+    ss += struct.pack("<q", nAmount)
+    ss += ser_uint256(hashOutputs)
+    ss += struct.pack("<q", outputSingleValue)
+    ss += ser_string(outputSingleScript)
+    ss += struct.pack("<q", nFees)
+    ss += struct.pack("<I", nLockTime)
+
+    if (hashtype & SIGHASH_MSV0_NOSCRIPTCODE):
+        ss += ser_string(CScript())
+    else:
+        ss += ser_string(script)
+
+    assert (len(vscriptSigCode) == MAX_MSV0_SCRIPTSIGCODE)
+    for i in range(MAX_MSV0_SCRIPTSIGCODE):
+        if (hashtype & (1 << (11 + i))):
+            ss += ser_string(CScript())
+        else:
+            ss += ser_string(vscriptSigCode[i])
+
+    ss += struct.pack("<I", hashtype)
+    ss += struct.pack("<I", 0x01000000)
     return hash256(ss)

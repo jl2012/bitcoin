@@ -146,7 +146,7 @@ class CECKey(object):
         r = self.get_raw_ecdh_key(other_pubkey)
         return kdf(r)
 
-    def sign(self, hash, low_s = True):
+    def sign(self, hash, low_s = True, msv0 = False):
         # FIXME: need unit tests for below cases
         if not isinstance(hash, bytes):
             raise TypeError('Hash must be bytes instance; got %r' % hash.__class__)
@@ -163,9 +163,16 @@ class CECKey(object):
         total_size = mb_sig.raw[1]
         assert mb_sig.raw[2] == 2
         r_size = mb_sig.raw[3]
+        r_value = int.from_bytes(mb_sig.raw[4:4+r_size], byteorder='big')
         assert mb_sig.raw[4 + r_size] == 2
         s_size = mb_sig.raw[5 + r_size]
         s_value = int.from_bytes(mb_sig.raw[6+r_size:6+r_size+s_size], byteorder='big')
+        if (msv0):
+            if s_value > SECP256K1_ORDER_HALF:
+                s_value = SECP256K1_ORDER - s_value
+            r_bytes = (r_value).to_bytes(32, byteorder='big')
+            s_bytes = (s_value).to_bytes(32, byteorder='big')
+            return r_bytes + s_bytes
         if (not low_s) or s_value <= SECP256K1_ORDER_HALF:
             return mb_sig.raw[:sig_size0.value]
         else:
