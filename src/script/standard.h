@@ -64,6 +64,8 @@ enum txnouttype
     TX_NULL_DATA, //!< unspendable OP_RETURN script that carries data
     TX_WITNESS_V0_SCRIPTHASH,
     TX_WITNESS_V0_KEYHASH,
+    TX_WITNESS_V1_MSHASH,
+    TX_WITNESS_V1_PUBKEY_V0,
 };
 
 class CNoDestination {

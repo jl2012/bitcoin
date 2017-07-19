@@ -30,6 +30,8 @@ const char* GetTxnOutputType(txnouttype t)
     case TX_NULL_DATA: return "nulldata";
     case TX_WITNESS_V0_KEYHASH: return "witness_v0_keyhash";
     case TX_WITNESS_V0_SCRIPTHASH: return "witness_v0_scripthash";
+    case TX_WITNESS_V1_MSHASH: return "witness_v1_mshash";
+    case TX_WITNESS_V1_PUBKEY_V0: return "witness_v1_pubkey_v0";
     }
     return nullptr;
 }
@@ -74,6 +76,15 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
             typeRet = TX_WITNESS_V0_SCRIPTHASH;
             vSolutionsRet.push_back(witnessprogram);
             return true;
+        }
+        if (witnessversion == 1 && witnessprogram.size() == 32) {
+            typeRet = TX_WITNESS_V1_MSHASH;
+            vSolutionsRet.push_back(witnessprogram);
+            return true;
+        }
+        if (witnessversion == 1 && witnessprogram.size() == 33) {
+            typeRet = TX_WITNESS_V1_PUBKEY_V0;
+            vSolutionsRet.push_back(witnessprogram);
         }
         return false;
     }

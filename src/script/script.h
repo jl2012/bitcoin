@@ -38,6 +38,9 @@ static const int MAX_STACK_SIZE = 1000;
 // otherwise as UNIX timestamp.
 static const unsigned int LOCKTIME_THRESHOLD = 500000000; // Tue Nov  5 00:53:20 1985 UTC
 
+// Maximum number of scriptWitCode in MSV0
+static const unsigned int MAX_MSV0_SCRIPTWITCODE = 5;
+
 template <typename T>
 std::vector<unsigned char> ToByteVector(const T& in)
 {
@@ -315,6 +318,11 @@ public:
             return std::numeric_limits<int>::max();
         else if (m_value < std::numeric_limits<int>::min())
             return std::numeric_limits<int>::min();
+        return m_value;
+    }
+
+    int64_t getint64() const
+    {
         return m_value;
     }
 
