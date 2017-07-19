@@ -2265,8 +2265,29 @@ size_t static WitnessSigOps(int witversion, const std::vector<unsigned char>& wi
 
         if (witprogram.size() == 32 && witness.stack.size() > 0) {
             CScript subscript(witness.stack.back().begin(), witness.stack.back().end());
-            return subscript.GetSigOpCount(true);
+            return subscript.GetSigOpCount(SIGOPCOUNT_P2SH);
         }
+    }
+    else if (witversion == 1) {
+        size_t nSigOp = 0;
+        std::vector <std::vector<unsigned char> > stack = witness.stack;
+        std::vector <CScript> vscriptSigCode;
+        if (witprogram.size() == 32) {
+            std::vector <uint256> vPath;
+            uint32_t nPosition;
+            std::vector<unsigned char> vchKeyCode;
+            if (IsMSStack(vPath, nPosition, stack, vchKeyCode) && vchKeyCode[0] == 0 && IsMSV0Stack(stack, vscriptSigCode))
+                nSigOp = CScript(vchKeyCode.begin() + 1, vchKeyCode.end()).GetSigOpCount(SIGOPCOUNT_MSV0);
+            else
+                return nSigOp;
+        }
+        else if (witprogram.size() == 33 && IsMSV0Stack(stack, vscriptSigCode))
+            nSigOp = 1;
+        else
+            return nSigOp;
+        for (size_t i = 0; i < vscriptSigCode.size(); i++)
+            nSigOp += vscriptSigCode[i].GetSigOpCount(SIGOPCOUNT_MSV0);
+        return nSigOp;
     }
 
     // Future flags may be implemented here.

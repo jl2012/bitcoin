@@ -196,6 +196,13 @@ enum opcodetype
     OP_INVALIDOPCODE = 0xff,
 };
 
+enum
+{
+    SIGOPCOUNT_LEGACY,
+    SIGOPCOUNT_P2SH,
+    SIGOPCOUNT_MSV0,
+};
+
 // Maximum value that an opcode can be
 static const unsigned int MAX_OPCODE = OP_CHECKSIGFROMSTACKVERIFY;
 
@@ -640,8 +647,12 @@ public:
      * CHECKMULTISIGs serialized in scriptSigs are
      * counted more accurately, assuming they are of the form
      *  ... OP_N CHECKMULTISIG ...
+     *
+     * In MSV0, it counts the number of signatures, assuming they are of the form
+     *  ... OP_M key1 key2 ... keyN OP_N CHECKMULTISIG ...
+     * Otherwise, it counts number of keys like P2SH
      */
-    unsigned int GetSigOpCount(bool fAccurate) const;
+    unsigned int GetSigOpCount(int nType) const;
 
     /**
      * Accurately count sigOps, including sigOps in

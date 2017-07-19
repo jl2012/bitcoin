@@ -109,11 +109,11 @@ unsigned int GetLegacySigOpCount(const CTransaction& tx)
     unsigned int nSigOps = 0;
     for (const auto& txin : tx.vin)
     {
-        nSigOps += txin.scriptSig.GetSigOpCount(false);
+        nSigOps += txin.scriptSig.GetSigOpCount(SIGOPCOUNT_LEGACY);
     }
     for (const auto& txout : tx.vout)
     {
-        nSigOps += txout.scriptPubKey.GetSigOpCount(false);
+        nSigOps += txout.scriptPubKey.GetSigOpCount(SIGOPCOUNT_LEGACY);
     }
     return nSigOps;
 }
