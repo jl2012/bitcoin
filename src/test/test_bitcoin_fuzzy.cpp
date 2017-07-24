@@ -44,7 +44,8 @@ enum TEST_ID {
     CINV_DESERIALIZE,
     CBLOOMFILTER_DESERIALIZE,
     CDISKBLOCKINDEX_DESERIALIZE,
-    CTXOUTCOMPRESSOR_DESERIALIZE,
+    CTXOUTCOMPRESSOR_NOCOLOR_DESERIALIZE,
+    CTXOUTCOMPRESSOR_COLOR_DESERIALIZE,
     TEST_ID_END
 };
 
@@ -238,10 +239,21 @@ int do_fuzz()
             } catch (const std::ios_base::failure& e) {return 0;}
             break;
         }
-        case CTXOUTCOMPRESSOR_DESERIALIZE:
+        case CTXOUTCOMPRESSOR_NOCOLOR_DESERIALIZE:
         {
             CTxOut to;
-            CTxOutCompressor toc(to);
+            CTxOutCompressor toc(to, false);
+            try
+            {
+                ds >> toc;
+            } catch (const std::ios_base::failure& e) {return 0;}
+
+            break;
+        }
+        case CTXOUTCOMPRESSOR_COLOR_DESERIALIZE:
+        {
+            CTxOut to;
+            CTxOutCompressor toc(to, true);
             try
             {
                 ds >> toc;

@@ -100,6 +100,10 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = 1479168000; // November 15th, 2016.
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = 1510704000; // November 15th, 2017.
 
+        consensus.vDeployments[Consensus::DEPLOYMENT_COLOR].bit = 6;
+        consensus.vDeployments[Consensus::DEPLOYMENT_COLOR].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_COLOR].nTimeout = 0;
+
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x0000000000000000000000000000000000000000003f94d1ad391682fe038bf5");
 
@@ -204,6 +208,10 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = 1462060800; // May 1st 2016
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = 1493596800; // May 1st 2017
 
+        consensus.vDeployments[Consensus::DEPLOYMENT_COLOR].bit = 6;
+        consensus.vDeployments[Consensus::DEPLOYMENT_COLOR].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_COLOR].nTimeout = 0;
+
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00000000000000000000000000000000000000000000001f057509eba81aed91");
 
@@ -287,6 +295,9 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].bit = 1;
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = 0;
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = 999999999999ULL;
+        consensus.vDeployments[Consensus::DEPLOYMENT_COLOR].bit = 6;
+        consensus.vDeployments[Consensus::DEPLOYMENT_COLOR].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_COLOR].nTimeout = 999999999999ULL;
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");

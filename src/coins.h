@@ -58,18 +58,19 @@ public:
     template<typename Stream>
     void Serialize(Stream &s) const {
         assert(!IsSpent());
-        uint32_t code = nHeight * 2 + fCoinBase;
+        const bool fHasColor = !out.color.IsNull();
+        uint32_t code = nHeight * 4 + fCoinBase * 2 + (fHasColor ? 1 : 0);
         ::Serialize(s, VARINT(code));
-        ::Serialize(s, CTxOutCompressor(REF(out)));
+        ::Serialize(s, CTxOutCompressor(REF(out), fHasColor));
     }
 
     template<typename Stream>
     void Unserialize(Stream &s) {
         uint32_t code = 0;
         ::Unserialize(s, VARINT(code));
-        nHeight = code >> 1;
-        fCoinBase = code & 1;
-        ::Unserialize(s, REF(CTxOutCompressor(out)));
+        nHeight = code >> 2;
+        fCoinBase = (code & 2) != 0;
+        ::Unserialize(s, REF(CTxOutCompressor(out, code & 1)));
     }
 
     bool IsSpent() const {

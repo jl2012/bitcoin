@@ -476,22 +476,24 @@ BOOST_AUTO_TEST_CASE(updatecoins_simulation_test)
 BOOST_AUTO_TEST_CASE(ccoins_serialization)
 {
     // Good example
-    CDataStream ss1(ParseHex("97f23c835800816115944e077fe7c803cfa57f29b36bf87c1d35"), SER_DISK, CLIENT_VERSION);
+    CDataStream ss1(ParseHex("b0e578835800816115944e077fe7c803cfa57f29b36bf87c1d35"), SER_DISK, CLIENT_VERSION);
     Coin cc1;
     ss1 >> cc1;
     BOOST_CHECK_EQUAL(cc1.fCoinBase, false);
     BOOST_CHECK_EQUAL(cc1.nHeight, 203998);
     BOOST_CHECK_EQUAL(cc1.out.nValue, 60000000000ULL);
     BOOST_CHECK_EQUAL(HexStr(cc1.out.scriptPubKey), HexStr(GetScriptForDestination(CKeyID(uint160(ParseHex("816115944e077fe7c803cfa57f29b36bf87c1d35"))))));
+    BOOST_CHECK_EQUAL(HexStr(cc1.out.color), HexStr(uint256()));
 
     // Good example
-    CDataStream ss2(ParseHex("8ddf77bbd123008c988f1a4a4de2161e0f50aac7f17e7f9555caa4"), SER_DISK, CLIENT_VERSION);
+    CDataStream ss2(ParseHex("9cc06ebbd123008c988f1a4a4de2161e0f50aac7f17e7f9555caa4"), SER_DISK, CLIENT_VERSION);
     Coin cc2;
     ss2 >> cc2;
     BOOST_CHECK_EQUAL(cc2.fCoinBase, true);
     BOOST_CHECK_EQUAL(cc2.nHeight, 120891);
     BOOST_CHECK_EQUAL(cc2.out.nValue, 110397);
     BOOST_CHECK_EQUAL(HexStr(cc2.out.scriptPubKey), HexStr(GetScriptForDestination(CKeyID(uint160(ParseHex("8c988f1a4a4de2161e0f50aac7f17e7f9555caa4"))))));
+    BOOST_CHECK_EQUAL(HexStr(cc2.out.color), HexStr(uint256()));
 
     // Smallest possible example
     CDataStream ss3(ParseHex("000006"), SER_DISK, CLIENT_VERSION);
@@ -501,6 +503,7 @@ BOOST_AUTO_TEST_CASE(ccoins_serialization)
     BOOST_CHECK_EQUAL(cc3.nHeight, 0);
     BOOST_CHECK_EQUAL(cc3.out.nValue, 0);
     BOOST_CHECK_EQUAL(cc3.out.scriptPubKey.size(), 0);
+    BOOST_CHECK_EQUAL(HexStr(cc3.out.color), HexStr(uint256()));
 
     // scriptPubKey that ends beyond the end of the stream
     CDataStream ss4(ParseHex("000007"), SER_DISK, CLIENT_VERSION);
@@ -520,6 +523,35 @@ BOOST_AUTO_TEST_CASE(ccoins_serialization)
     try {
         Coin cc5;
         ss5 >> cc5;
+        BOOST_CHECK_MESSAGE(false, "We should have thrown");
+    } catch (const std::ios_base::failure& e) {
+    }
+
+    // Good example
+    CDataStream ss6(ParseHex("b0e579835800816115944e077fe7c803cfa57f29b36bf87c1d35af4ccd20277527c9c3a7ab3ac2a93faafc2440397d07e22067632ca7856477b3"), SER_DISK, CLIENT_VERSION);
+    Coin cc6;
+    ss6 >> cc6;
+    BOOST_CHECK_EQUAL(cc6.fCoinBase, false);
+    BOOST_CHECK_EQUAL(cc6.nHeight, 203998);
+    BOOST_CHECK_EQUAL(cc6.out.nValue, 60000000000ULL);
+    BOOST_CHECK_EQUAL(HexStr(cc6.out.scriptPubKey), HexStr(GetScriptForDestination(CKeyID(uint160(ParseHex("816115944e077fe7c803cfa57f29b36bf87c1d35"))))));
+    BOOST_CHECK_EQUAL(HexStr(cc6.out.color), "af4ccd20277527c9c3a7ab3ac2a93faafc2440397d07e22067632ca7856477b3");
+
+    // Good example
+    CDataStream ss7(ParseHex("9cc06fbbd123008c988f1a4a4de2161e0f50aac7f17e7f9555caa45ddea587800babed7ef7405174e86a295f131891c3f3f8af363c29f1e787c4db"), SER_DISK, CLIENT_VERSION);
+    Coin cc7;
+    ss7 >> cc7;
+    BOOST_CHECK_EQUAL(cc7.fCoinBase, true);
+    BOOST_CHECK_EQUAL(cc7.nHeight, 120891);
+    BOOST_CHECK_EQUAL(cc7.out.nValue, 110397);
+    BOOST_CHECK_EQUAL(HexStr(cc7.out.scriptPubKey), HexStr(GetScriptForDestination(CKeyID(uint160(ParseHex("8c988f1a4a4de2161e0f50aac7f17e7f9555caa4"))))));
+    BOOST_CHECK_EQUAL(HexStr(cc7.out.color), "5ddea587800babed7ef7405174e86a295f131891c3f3f8af363c29f1e787c4db");
+
+    // Incomplete color
+    CDataStream ss8(ParseHex("9cc06fbbd123008c988f1a4a4de2161e0f50aac7f17e7f9555caa45ddea587800babed7ef7405174e86a295f131891c3f3f8af363c29f1e787c4"), SER_DISK, CLIENT_VERSION);
+    try {
+        Coin cc8;
+        ss8 >> cc8;
         BOOST_CHECK_MESSAGE(false, "We should have thrown");
     } catch (const std::ios_base::failure& e) {
     }

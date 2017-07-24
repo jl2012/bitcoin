@@ -94,12 +94,13 @@ class CTxOutCompressor
 {
 private:
     CTxOut &txout;
+    const bool &fHasColor;
 
 public:
     static uint64_t CompressAmount(uint64_t nAmount);
     static uint64_t DecompressAmount(uint64_t nAmount);
 
-    CTxOutCompressor(CTxOut &txoutIn) : txout(txoutIn) { }
+    CTxOutCompressor(CTxOut &txoutIn, const bool& fHasColorIn) : txout(txoutIn), fHasColor(fHasColorIn) { }
 
     ADD_SERIALIZE_METHODS;
 
@@ -115,6 +116,8 @@ public:
         }
         CScriptCompressor cscript(REF(txout.scriptPubKey));
         READWRITE(cscript);
+        if (fHasColor)
+            READWRITE(txout.color);
     }
 };
 

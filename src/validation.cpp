@@ -459,6 +459,10 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
         return state.DoS(0, false, REJECT_NONSTANDARD, "no-witness-yet", true);
     }
 
+    // Reject color transactions before the color rules activates
+    if (fRequireStandard && static_cast<uint32_t>(tx.nVersion) > 2 && IsColorEnabled(chainActive.Tip(), chainparams.GetConsensus()))
+        return state.DoS(0, false, REJECT_NONSTANDARD, "no-color-yet", true);
+
     // Rather not work on nonstandard transactions (unless -testnet/-regtest)
     std::string reason;
     if (fRequireStandard && !IsStandardTx(tx, reason, witnessEnabled))
@@ -1242,6 +1246,9 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
         if (!Consensus::CheckTxInputs(tx, state, inputs, GetSpendHeight(inputs)))
             return false;
 
+        if (static_cast<uint32_t>(tx.nVersion) > 2 && flags & TX_VERIFY_COLOR && !Consensus::CheckColor(tx, state, inputs))
+            return false;
+
         if (pvChecks)
             pvChecks->reserve(tx.vin.size());
 
@@ -1610,6 +1617,10 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consens
         flags |= SCRIPT_VERIFY_NULLDUMMY;
     }
 
+    // Start enforcing COLOR rules using versionbits logic.
+    if (IsColorEnabled(pindex->pprev, consensusparams))
+        flags |= TX_VERIFY_COLOR;
+
     return flags;
 }
 
@@ -1796,7 +1807,16 @@ static bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockInd
         if (i > 0) {
             blockundo.vtxundo.push_back(CTxUndo());
         }
-        UpdateCoins(tx, view, i == 0 ? undoDummy : blockundo.vtxundo.back(), pindex->nHeight);
+
+        if (static_cast<uint32_t>(tx.nVersion) > 2 && (!(flags & TX_VERIFY_COLOR) || i == 0)) {
+            CMutableTransaction mtx(tx);
+            for (auto& mtxout : mtx.vout) {
+                mtxout.color.SetNull();
+            }
+            UpdateCoins(mtx, view, i == 0 ? undoDummy : blockundo.vtxundo.back(), pindex->nHeight);
+        }
+        else
+            UpdateCoins(tx, view, i == 0 ? undoDummy : blockundo.vtxundo.back(), pindex->nHeight);
 
         vPos.push_back(std::make_pair(tx.GetHash(), pos));
         pos.nTxOffset += ::GetSerializeSize(tx, SER_DISK, CLIENT_VERSION);
@@ -2632,6 +2652,9 @@ static bool ReceivedBlockTransactions(const CBlock &block, CValidationState& sta
     if (IsWitnessEnabled(pindexNew->pprev, consensusParams)) {
         pindexNew->nStatus |= BLOCK_OPT_WITNESS;
     }
+    if (IsColorEnabled(pindexNew->pprev, consensusParams)) {
+        pindexNew->nStatus |= BLOCK_OPT_COLOR;
+    }
     pindexNew->RaiseValidity(BLOCK_VALID_TRANSACTIONS);
     setDirtyBlockIndex.insert(pindexNew);
 
@@ -2849,6 +2872,12 @@ bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& pa
 {
     LOCK(cs_main);
     return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE);
+}
+
+bool IsColorEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+{
+    LOCK(cs_main);
+    return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_COLOR, versionbitscache) == THRESHOLD_ACTIVE);
 }
 
 // Compute at which vout of the block's coinbase transaction the witness
@@ -3755,6 +3784,9 @@ bool RewindBlockIndex(const CChainParams& params)
         if (IsWitnessEnabled(chainActive[nHeight - 1], params.GetConsensus()) && !(chainActive[nHeight]->nStatus & BLOCK_OPT_WITNESS)) {
             break;
         }
+        if (IsColorEnabled(chainActive[nHeight - 1], params.GetConsensus()) && !(chainActive[nHeight]->nStatus & BLOCK_OPT_COLOR)) {
+            break;
+        }
         nHeight++;
     }
 
@@ -3789,7 +3821,8 @@ bool RewindBlockIndex(const CChainParams& params)
         // this block or some successor doesn't HAVE_DATA, so we were unable to
         // rewind all the way.  Blocks remaining on chainActive at this point
         // must not have their validity reduced.
-        if (IsWitnessEnabled(pindexIter->pprev, params.GetConsensus()) && !(pindexIter->nStatus & BLOCK_OPT_WITNESS) && !chainActive.Contains(pindexIter)) {
+        if ((IsWitnessEnabled(pindexIter->pprev, params.GetConsensus()) && !(pindexIter->nStatus & BLOCK_OPT_WITNESS) && !chainActive.Contains(pindexIter)) ||
+            (IsColorEnabled(pindexIter->pprev, params.GetConsensus()) && !(pindexIter->nStatus & BLOCK_OPT_COLOR) && !chainActive.Contains(pindexIter))) {
             // Reduce validity
             pindexIter->nStatus = std::min<unsigned int>(pindexIter->nStatus & BLOCK_VALID_MASK, BLOCK_VALID_TREE) | (pindexIter->nStatus & ~BLOCK_VALID_MASK);
             // Remove have-data flags.
