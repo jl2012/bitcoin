@@ -133,6 +133,8 @@ class CTxOut
 public:
     CAmount nValue;
     CScript scriptPubKey;
+    uint256 color;
+    uint32_t nPadShift;
 
     CTxOut()
     {
@@ -153,11 +155,24 @@ public:
     {
         nValue = -1;
         scriptPubKey.clear();
+        color.SetNull();
+        nPadShift = 0;
     }
 
     bool IsNull() const
     {
         return (nValue == -1);
+    }
+
+    void SetColorNull()
+    {
+        color.SetNull();
+        nPadShift = 0;
+    }
+
+    bool HasColor() const
+    {
+        return (!color.IsNull() && !IsNull());
     }
 
     friend bool operator==(const CTxOut& a, const CTxOut& b)
@@ -226,6 +241,29 @@ inline void UnserializeTransaction(TxType& tx, Stream& s) {
         throw std::ios_base::failure("Unknown transaction optional data");
     }
     s >> tx.nLockTime;
+
+    if (static_cast<uint32_t>(tx.nVersion) > 2) {
+        for (auto& txout : tx.vout) {
+            const CScript& scriptPubKey = txout.scriptPubKey;
+            if (scriptPubKey.size() >= 38 &&
+                scriptPubKey[0] == OP_RETURN &&
+                scriptPubKey[1] == OP_PUSHDATA2 &&
+                scriptPubKey[2] == 0x85 &&
+                scriptPubKey[3] == 0xad &&
+                scriptPubKey.back() != 0) {
+                uint256 color;
+                memcpy(color.begin(), &scriptPubKey[4], 32);
+                for (size_t i = 0; i < scriptPubKey.size() - 37 && i * 8 < tx.vout.size(); i++) {
+                    for (size_t j = 0; j < 8 && i * 8 + j < tx.vout.size(); j++) {
+                        if (scriptPubKey[i + 37] & (1U << j)) {
+                            tx.vout[i * 8 + j].color = color;
+                            tx.vout[i * 8 + j].nPadShift = scriptPubKey[36];
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 template<typename Stream, typename TxType>
@@ -271,7 +309,7 @@ public:
     // adapting relay policy by bumping MAX_STANDARD_VERSION, and then later date
     // bumping the default CURRENT_VERSION at which point both CURRENT_VERSION and
     // MAX_STANDARD_VERSION will be equal.
-    static const int32_t MAX_STANDARD_VERSION=2;
+    static const int32_t MAX_STANDARD_VERSION=3;
 
     // The local variables are made const to prevent unintended modification
     // without updating the cached hash value. However, CTransaction is not

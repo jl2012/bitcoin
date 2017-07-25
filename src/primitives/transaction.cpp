@@ -47,6 +47,8 @@ CTxOut::CTxOut(const CAmount& nValueIn, CScript scriptPubKeyIn)
 {
     nValue = nValueIn;
     scriptPubKey = scriptPubKeyIn;
+    color.SetNull();
+    nPadShift = 0;
 }
 
 std::string CTxOut::ToString() const

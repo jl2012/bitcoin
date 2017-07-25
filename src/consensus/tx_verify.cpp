@@ -248,3 +248,82 @@ bool Consensus::CheckTxInputs(const CTransaction& tx, CValidationState& state, c
             return state.DoS(100, false, REJECT_INVALID, "bad-txns-fee-outofrange");
     return true;
 }
+
+bool Consensus::CheckColor(const CTransaction& tx, CValidationState& state, const CCoinsViewCache& inputs)
+{
+    typedef std::map<uint256, CAmount> maptype;
+    maptype mapcolor;
+    std::vector<bool> vfHasColor(tx.vout.size(), false);
+    bool fCheckColor = false;
+    for (auto &txout : tx.vout) {
+        const CScript &scriptPubKey = txout.scriptPubKey;
+        if (scriptPubKey.size() >= 37 &&
+            scriptPubKey[0] == OP_RETURN &&
+            scriptPubKey[1] == OP_PUSHDATA2 &&
+            scriptPubKey[2] == 0x85 &&
+            scriptPubKey[3] == 0xad) {
+            if (scriptPubKey.size() == 37 || scriptPubKey[36] > 50 || scriptPubKey.back() == 0)
+                return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-committment");
+            if (txout.HasColor())
+                return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-selfassign");
+            for (size_t i = 4; i < 36; i++) {
+                if (scriptPubKey[i])
+                    break;
+                if (i == 35)
+                    return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-null");
+            }
+            for (size_t i = 0; i < scriptPubKey.size() - 37; i++) {
+                if (i * 8 >= tx.vout.size())
+                    return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-outofrange");
+                for (size_t j = 0; j < 8; j++) {
+                    if (scriptPubKey[i + 37] & (1U << j)) {
+                        const size_t nOut = i * 8 + j;
+                        if (nOut >= tx.vout.size())
+                            return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-outofrange");
+                        if (vfHasColor[nOut])
+                            return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-multiple");
+                        vfHasColor[nOut] = true;
+                    }
+                }
+            }
+            fCheckColor = true;
+        }
+        else if (txout.HasColor()) {
+            CAmount nUnpadValue = txout.nValue - (1ULL << txout.nPadShift) + 1;
+            if (nUnpadValue < 0)
+                return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-padvalue");
+            if (mapcolor.count(txout.color))
+                mapcolor[txout.color] -= nUnpadValue;
+            else
+                mapcolor[txout.color] = -nUnpadValue;
+        }
+    }
+
+    if (!fCheckColor)
+        return true;
+
+    for (auto &txin : tx.vin)
+    {
+        const Coin& coin = inputs.AccessCoin(txin.prevout);
+
+        uint256 color = coin.out.color;
+        const uint32_t nColorType = (txin.nSequence & 0x1800000);
+        if (nColorType) {
+            CHashWriter ss(SER_GETHASH, 0);
+            ss << nColorType;
+            if (nColorType == 0x1000000)
+                ss << txin.prevout;
+            else if (nColorType == 0x0800000)
+                ss << coin.out.scriptPubKey;
+            color = ss.GetHash();
+        }
+        if (!color.IsNull() && mapcolor.count(color))
+            mapcolor[color] += coin.out.nValue - (1ULL << coin.out.nPadShift) + 1;
+    }
+
+    for (maptype::iterator it = mapcolor.begin(); it != mapcolor.end(); it++) {
+        if (it->second < 0)
+            return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-in-belowout");
+    }
+    return true;
+}

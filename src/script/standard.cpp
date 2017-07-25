@@ -30,6 +30,7 @@ const char* GetTxnOutputType(txnouttype t)
     case TX_NULL_DATA: return "nulldata";
     case TX_WITNESS_V0_KEYHASH: return "witness_v0_keyhash";
     case TX_WITNESS_V0_SCRIPTHASH: return "witness_v0_scripthash";
+    case TX_COLOR_DATA: return "colordata";
     }
     return NULL;
 }
@@ -88,6 +89,17 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
     // script.
     if (scriptPubKey.size() >= 1 && scriptPubKey[0] == OP_RETURN && scriptPubKey.IsPushOnly(scriptPubKey.begin()+1)) {
         typeRet = TX_NULL_DATA;
+        return true;
+    }
+
+    if (scriptPubKey.size() >= 38 &&
+        scriptPubKey[0] == OP_RETURN &&
+        scriptPubKey[1] == OP_PUSHDATA2 &&
+        scriptPubKey[2] == 0x85 &&
+        scriptPubKey[3] == 0xad &&
+        scriptPubKey[36] <= 50 &&
+        scriptPubKey.back() != 0) {
+        typeRet = TX_COLOR_DATA;
         return true;
     }
 
@@ -213,7 +225,7 @@ bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, std::
     std::vector<valtype> vSolutions;
     if (!Solver(scriptPubKey, typeRet, vSolutions))
         return false;
-    if (typeRet == TX_NULL_DATA){
+    if (typeRet == TX_NULL_DATA || typeRet == TX_COLOR_DATA){
         // This is data, not addresses
         return false;
     }

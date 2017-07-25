@@ -115,6 +115,23 @@ public:
         }
         CScriptCompressor cscript(REF(txout.scriptPubKey));
         READWRITE(cscript);
+
+        unsigned char nPadShiftCompact;
+        if (!ser_action.ForRead()) {
+            nPadShiftCompact = txout.HasColor() ? txout.nPadShift : 0xff;
+            READWRITE(nPadShiftCompact);
+            if (txout.HasColor())
+                READWRITE(txout.color);
+        } else {
+            READWRITE(nPadShiftCompact);
+            if (nPadShiftCompact != 0xff) {
+                txout.nPadShift = nPadShiftCompact;
+                READWRITE(txout.color);
+            }
+            else
+                txout.SetColorNull();
+        }
+
     }
 };
 
