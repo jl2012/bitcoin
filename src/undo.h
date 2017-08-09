@@ -25,12 +25,13 @@ class TxInUndoSerializer
 public:
     template<typename Stream>
     void Serialize(Stream &s) const {
-        ::Serialize(s, VARINT(txout->nHeight * 2 + (txout->fCoinBase ? 1 : 0)));
+        assert(txout->nHeight < 0x4000000);
+        ::Serialize(s, VARINT(txout->nHeight * 2 + (txout->fCoinBase ? 1 : 0) + (txout->out.HasColor() ? 0x8000000 : 0)));
         if (txout->nHeight > 0) {
             // Required to maintain compatibility with older undo format.
             ::Serialize(s, (unsigned char)0);
         }
-        ::Serialize(s, CTxOutCompressor(REF(txout->out)));
+        ::Serialize(s, CTxOutCompressor(REF(txout->out), false));
     }
 
     TxInUndoSerializer(const Coin* coin) : txout(coin) {}
@@ -45,7 +46,7 @@ public:
     void Unserialize(Stream &s) {
         unsigned int nCode = 0;
         ::Unserialize(s, VARINT(nCode));
-        txout->nHeight = nCode / 2;
+        txout->nHeight = (nCode / 2) & 0x3ffffff;
         txout->fCoinBase = nCode & 1;
         if (txout->nHeight > 0) {
             // Old versions stored the version number for the last spend of
@@ -54,7 +55,7 @@ public:
             int nVersionDummy;
             ::Unserialize(s, VARINT(nVersionDummy));
         }
-        ::Unserialize(s, REF(CTxOutCompressor(REF(txout->out))));
+        ::Unserialize(s, REF(CTxOutCompressor(REF(txout->out), nCode >> 27)));
     }
 
     TxInUndoDeserializer(Coin* coin) : txout(coin) {}

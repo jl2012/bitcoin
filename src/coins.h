@@ -58,18 +58,22 @@ public:
     template<typename Stream>
     void Serialize(Stream &s) const {
         assert(!IsSpent());
-        uint32_t code = nHeight * 2 + fCoinBase;
+        // We use bit 27 of code to indicate the presense of color. This allows seamless upgrade from an old database
+        // as this bit will not be used until block 134217728 (>2000 years). Bit 27 is the highest bit allowed by a
+        // 4-byte VARINT.
+        assert(nHeight < 0x8000000);
+        uint32_t code = nHeight * 2 + fCoinBase + (out.HasColor() ? 0x8000000 : 0);
         ::Serialize(s, VARINT(code));
-        ::Serialize(s, CTxOutCompressor(REF(out)));
+        ::Serialize(s, CTxOutCompressor(REF(out), false));
     }
 
     template<typename Stream>
     void Unserialize(Stream &s) {
         uint32_t code = 0;
         ::Unserialize(s, VARINT(code));
-        nHeight = code >> 1;
+        nHeight = (code >> 1) & 0x3ffffff;
         fCoinBase = code & 1;
-        ::Unserialize(s, REF(CTxOutCompressor(out)));
+        ::Unserialize(s, REF(CTxOutCompressor(out, code >> 27)));
     }
 
     bool IsSpent() const {

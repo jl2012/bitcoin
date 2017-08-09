@@ -248,3 +248,105 @@ bool Consensus::CheckTxInputs(const CTransaction& tx, CValidationState& state, c
             return state.DoS(100, false, REJECT_INVALID, "bad-txns-fee-outofrange");
     return true;
 }
+
+bool Consensus::CheckColor(const CTransaction& tx, CValidationState& state, const CCoinsViewCache& inputs)
+{
+    typedef std::map<uint256, CAmount> maptype;
+    maptype mapcolor;
+    std::vector<bool> vfHasColor(tx.vout.size(), false);
+    for (auto &txout : tx.vout) {
+        const CScript &scriptPubKey = txout.scriptPubKey;
+        if (scriptPubKey.IsColorCommitment()) {
+            // If the size is exactly 36, this color commitment is redundant
+            // If the last byte is 0, it refers to no output so must be redundant
+            if (scriptPubKey.size() == 36 || scriptPubKey.back() == 0)
+                return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-committment");
+
+            // Color pattern output must be null color
+            if (txout.HasColor())
+                return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-selfassign");
+
+            // Null color commitment is redundant as any output not covered by a color commitment has null color
+            for (size_t i = 4; i < 36; i++) {
+                if (scriptPubKey[i])
+                    break;
+                if (i == 35)
+                    return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-null");
+            }
+
+            // Check for out-of-range color assignment
+            for (size_t i = 0; i < scriptPubKey.size() - 36; i++) {
+                if (i * 8 >= tx.vout.size())
+                    return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-outofrange");
+                for (size_t j = 0; j < 8; j++) {
+                    if (scriptPubKey[i + 36] & (1U << j)) {
+                        const size_t nOut = i * 8 + j;
+                        if (nOut >= tx.vout.size())
+                            return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-outofrange");
+                        // Each output may be assigned color at most once. However, it is valid to have multiple
+                        // commitments for the same color, as long as the assignments do not repeat
+                        if (vfHasColor[nOut])
+                            return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-multiple");
+                        vfHasColor[nOut] = true;
+                    }
+                }
+            }
+        }
+        else if (txout.HasColor()) {
+            // Making 0-value output with color is invalid
+            if (txout.nValue == 0)
+                return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-zero-value");
+            std::pair<maptype::iterator, bool> ret = mapcolor.emplace(txout.color, txout.nValue);
+            if (!ret.second)
+                ret.first->second += txout.nValue;
+        }
+    }
+
+    for (auto &txin : tx.vin)
+    {
+        const CTxOut& prev = inputs.AccessCoin(txin.prevout).out;
+
+        const uint32_t nColorType = (txin.nSequence & CTxIn::SEQUENCE_COLOR_MASK);
+
+        // If the nColorType bits are not set, color of the input (if any) is irrecoverably discarded.
+        // The coins are transferred as null-color bitcoin.
+        if (nColorType) {
+            maptype::iterator it;
+            // Null-color inputs cannot use SEQUENCE_COLOR_TRANSFER. For simple value transfer they should unset the
+            // nColorType bits. For color genesis they may use SEQUENCE_COLOR_SCRIPT or SEQUENCE_COLOR_PREVOUT
+            if (nColorType == CTxIn::SEQUENCE_COLOR_TRANSFER) {
+                if (!prev.HasColor())
+                    return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-sequence");
+                it = mapcolor.find(prev.color);
+            }
+
+            // When SEQUENCE_COLOR_PREVOUT or SEQUENCE_COLOR_SCRIPT is used, the input must originally have null color.
+            // SEQUENCE_COLOR_PREVOUT color genesis is guaranteed to be an one-off event for a given color (with BIP30)
+            // SEQUENCE_COLOR_SCRIPT color genesis could be repeated by spending UTXOs with the same scriptPubKey.
+            // A future scripting system might optionally impose restrictions on this ability.
+            else {
+                if (prev.HasColor())
+                    return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-sequence");
+                CHashWriter ss(SER_GETHASH, 0);
+                ss << nColorType;
+                if (nColorType == CTxIn::SEQUENCE_COLOR_SCRIPT)
+                    ss << prev.scriptPubKey;
+                else // SEQUENCE_COLOR_PREVOUT
+                    ss << txin.prevout;
+                it = mapcolor.find(ss.GetHash());
+            }
+
+            // Remove colors from mapcolor that are known to have total input value not lower than total output value
+            // This speeds up the remaining tests
+            if (it != mapcolor.end() && (it->second -= prev.nValue) <= 0)
+                mapcolor.erase(it);
+        }
+        else if (prev.HasColor())
+            return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-sequence");
+    }
+
+    // A valid transaction should have an empty mapcolor at this point
+    if (!mapcolor.empty())
+        return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-in-belowout");
+    return true;
+}

@@ -94,12 +94,13 @@ class CTxOutCompressor
 {
 private:
     CTxOut &txout;
+    const bool &fHasColor;
 
 public:
     static uint64_t CompressAmount(uint64_t nAmount);
     static uint64_t DecompressAmount(uint64_t nAmount);
 
-    CTxOutCompressor(CTxOut &txoutIn) : txout(txoutIn) { }
+    CTxOutCompressor(CTxOut &txoutIn, const bool &fHasColorIn) : txout(txoutIn), fHasColor(fHasColorIn) { }
 
     ADD_SERIALIZE_METHODS;
 
@@ -115,6 +116,10 @@ public:
         }
         CScriptCompressor cscript(REF(txout.scriptPubKey));
         READWRITE(cscript);
+        // For writing operation, fHasColor is ignored. Color is written only for non-null color.
+        // For reading operation, upgrade is seamless as the format for existing (null-color) UTXOs are compatible.
+        if ((!ser_action.ForRead() && txout.HasColor()) || (ser_action.ForRead() && fHasColor))
+            READWRITE(txout.color);
     }
 };
 
