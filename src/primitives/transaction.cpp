@@ -43,10 +43,11 @@ std::string CTxIn::ToString() const
     return str;
 }
 
-CTxOut::CTxOut(const CAmount& nValueIn, CScript scriptPubKeyIn)
+CTxOut::CTxOut(const CAmount& nValueIn, CScript scriptPubKeyIn, uint256 colorIn)
 {
     nValue = nValueIn;
     scriptPubKey = scriptPubKeyIn;
+    color = colorIn;
 }
 
 std::string CTxOut::ToString() const

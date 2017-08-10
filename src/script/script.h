@@ -654,6 +654,21 @@ public:
         return (size() > 0 && *begin() == OP_RETURN) || (size() > MAX_SCRIPT_SIZE);
     }
 
+    /* Color commitment is OP_RETURN followed by an OP_PUSHDATA2 operaration for 0xad85 = 44,421 bytes. The push is
+     * invalid if the data followed is less than 44421 bytes, which is enough to assign color to a transaction with
+     * (44,421 - 32) * 8 = 355,112 outputs. Since a valid transaction might only have less than 1,000,000 / 9 =
+     * 111,111 outputs, any valid color commitment must end with an incomplete OP_PUSHDATA2. This is desirable since
+     * incomplete pushes are counted as 0 sigOps.
+     */
+    bool IsColorCommitment() const
+    {
+        return (this->size() >= 36 &&
+                (*this)[0] == OP_RETURN &&
+                (*this)[1] == OP_PUSHDATA2 &&
+                (*this)[2] == 0x85 &&
+                (*this)[3] == 0xad);
+    }
+
     void clear()
     {
         // The default prevector::clear() does not release memory

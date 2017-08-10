@@ -93,6 +93,20 @@ public:
      * 9 bits. */
     static const int SEQUENCE_LOCKTIME_GRANULARITY = 9;
 
+    /* The bits 23 and 24 of the nSequence are used for indicating the type of color movement.
+     * SEQUENCE_COLOR_TRANSFER is mandatory if the input is not null-color. It allows transferring color to outputs.
+     * SEQUENCE_COLOR_SCRIPT and SEQUENCE_COLOR_PREVOUT are valid only if the input is originally null-color.
+     * SEQUENCE_COLOR_PREVOUT color genesis is guaranteed to be an one-off event for a given color (with BIP30)
+     * SEQUENCE_COLOR_SCRIPT color genesis could be repeated by spending UTXOs with the same scriptPubKey. A future
+     * scripting system might optionally impose restrictions on this ability.
+     * If both bits are not set (aka SEQUENCE_COLOR_NULL), the input must be null-color or the transaction is invalid
+     * If the transacation nVersion is below 3, these flags have no consensus meaning and all outputs will have
+     * null-color. */
+    static const uint32_t SEQUENCE_COLOR_SCRIPT = (1 << 23);
+    static const uint32_t SEQUENCE_COLOR_PREVOUT = (1 << 24);
+    static const uint32_t SEQUENCE_COLOR_MASK = (SEQUENCE_COLOR_SCRIPT | SEQUENCE_COLOR_PREVOUT);
+    static const uint32_t SEQUENCE_COLOR_TRANSFER = SEQUENCE_COLOR_MASK;
+
     CTxIn()
     {
         nSequence = SEQUENCE_FINAL;
@@ -133,13 +147,14 @@ class CTxOut
 public:
     CAmount nValue;
     CScript scriptPubKey;
+    uint256 color;
 
     CTxOut()
     {
         SetNull();
     }
 
-    CTxOut(const CAmount& nValueIn, CScript scriptPubKeyIn);
+    CTxOut(const CAmount& nValueIn, CScript scriptPubKeyIn, uint256 colorIn = uint256());
 
     ADD_SERIALIZE_METHODS;
 
@@ -153,6 +168,17 @@ public:
     {
         nValue = -1;
         scriptPubKey.clear();
+        color.SetNull();
+    }
+
+    void SetColorNull()
+    {
+        color.SetNull();
+    }
+
+    bool HasColor() const
+    {
+        return (!color.IsNull() && !IsNull());
     }
 
     bool IsNull() const
@@ -226,6 +252,25 @@ inline void UnserializeTransaction(TxType& tx, Stream& s) {
         throw std::ios_base::failure("Unknown transaction optional data");
     }
     s >> tx.nLockTime;
+
+    // Interpret color commitments. It does not catch invalid commitment formats, which will be inspected with
+    // Consensus::CheckColor later. Legacy transactions and coinbase transactions are ignored.
+    if (static_cast<uint32_t>(tx.nVersion) > 2) {
+        for (auto& txout : tx.vout) {
+            const CScript& scriptPubKey = txout.scriptPubKey;
+            if (scriptPubKey.IsColorCommitment() && scriptPubKey.back() != 0) {
+                uint256 color;
+                memcpy(color.begin(), &scriptPubKey[4], 32);
+                for (size_t i = 0; i < scriptPubKey.size() - 36 && i * 8 < tx.vout.size(); i++) {
+                    for (size_t j = 0; j < 8 && i * 8 + j < tx.vout.size(); j++) {
+                        if (scriptPubKey[i + 36] & (1U << j)) {
+                            tx.vout[i * 8 + j].color = color;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 template<typename Stream, typename TxType>
@@ -271,7 +316,7 @@ public:
     // adapting relay policy by bumping MAX_STANDARD_VERSION, and then later date
     // bumping the default CURRENT_VERSION at which point both CURRENT_VERSION and
     // MAX_STANDARD_VERSION will be equal.
-    static const int32_t MAX_STANDARD_VERSION=2;
+    static const int32_t MAX_STANDARD_VERSION=3;
 
     // The local variables are made const to prevent unintended modification
     // without updating the cached hash value. However, CTransaction is not
@@ -333,6 +378,11 @@ public:
     bool IsCoinBase() const
     {
         return (vin.size() == 1 && vin[0].prevout.IsNull());
+    }
+
+    bool IsColorVersion() const
+    {
+        return (static_cast<uint32_t>(nVersion) >= 3);
     }
 
     friend bool operator==(const CTransaction& a, const CTransaction& b)

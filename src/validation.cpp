@@ -192,6 +192,7 @@ static bool FlushStateToDisk(const CChainParams& chainParams, CValidationState &
 static void FindFilesToPruneManual(std::set<int>& setFilesToPrune, int nManualPruneHeight);
 static void FindFilesToPrune(std::set<int>& setFilesToPrune, uint64_t nPruneAfterHeight);
 bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsViewCache &inputs, bool fScriptChecks, unsigned int flags, bool cacheSigStore, bool cacheFullScriptStore, PrecomputedTransactionData& txdata, std::vector<CScriptCheck> *pvChecks = nullptr);
+bool CheckColor(const CTransaction& tx, CValidationState &state, const CCoinsViewCache &inputs, std::map<uint256, CAmount> *mapColorFees);
 static FILE* OpenUndoFile(const CDiskBlockPos &pos, bool fReadOnly = false);
 
 bool CheckFinalTx(const CTransaction &tx, int flags)
@@ -433,7 +434,7 @@ static bool CheckInputsFromMempoolAndCache(const CTransaction& tx, CValidationSt
         }
     }
 
-    return CheckInputs(tx, state, view, true, flags, cacheSigStore, true, txdata);
+    return (CheckInputs(tx, state, view, true, flags, cacheSigStore, true, txdata) && CheckColor(tx, state, view, nullptr));
 }
 
 static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool& pool, CValidationState& state, const CTransactionRef& ptx, bool fLimitFree,
@@ -458,6 +459,10 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
     if (!GetBoolArg("-prematurewitness", false) && tx.HasWitness() && !witnessEnabled) {
         return state.DoS(0, false, REJECT_NONSTANDARD, "no-witness-yet", true);
     }
+
+    // Reject color transactions before the color rules activates
+    if (fRequireStandard && tx.IsColorVersion() && !IsColorEnabled(chainActive.Tip(), chainparams.GetConsensus()))
+        return state.DoS(0, false, REJECT_NONSTANDARD, "no-color-yet", true);
 
     // Rather not work on nonstandard transactions (unless -testnet/-regtest)
     std::string reason;
@@ -800,6 +805,9 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
             }
             return false; // state filled in by CheckInputs
         }
+
+        if (!CheckColor(tx, state, view, nullptr))
+            return false;
 
         // Check again against the current block tip's script verification
         // flags to cache our script execution flags. This is, of course,
@@ -1323,6 +1331,118 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
     return true;
 }
 
+bool CheckColor(const CTransaction& tx, CValidationState& state, const CCoinsViewCache& inputs, std::map<uint256, CAmount> *mapColorFees)
+{
+    if (!tx.IsColorVersion())
+        return true;
+    typedef std::map<uint256, CAmount> maptype;
+    maptype mapcolor;
+    std::vector<bool> vfHasColor(tx.vout.size(), false);
+    for (auto &txout : tx.vout) {
+        const CScript &scriptPubKey = txout.scriptPubKey;
+        if (scriptPubKey.IsColorCommitment()) {
+            // If the size is exactly 36, this color commitment is redundant
+            // If the last byte is 0, it refers to no output so must be redundant
+            if (scriptPubKey.size() == 36 || scriptPubKey.back() == 0)
+                return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-committment");
+
+            // Color pattern output must be null color
+            if (txout.HasColor())
+                return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-selfassign");
+
+            // Null color commitment is redundant as any output not covered by a color commitment has null color
+            for (size_t i = 4; i < 36; i++) {
+                if (scriptPubKey[i])
+                    break;
+                if (i == 35)
+                    return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-null");
+            }
+
+            // Check for out-of-range color assignment
+            for (size_t i = 0; i < scriptPubKey.size() - 36; i++) {
+                if (i * 8 >= tx.vout.size())
+                    return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-outofrange");
+                for (size_t j = 0; j < 8; j++) {
+                    if (scriptPubKey[i + 36] & (1U << j)) {
+                        const size_t nOut = i * 8 + j;
+                        if (nOut >= tx.vout.size())
+                            return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-outofrange");
+                        // Each output may be assigned color at most once. However, it is valid to have multiple
+                        // commitments for the same color, as long as the assignments do not repeat
+                        if (vfHasColor[nOut])
+                            return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-multiple");
+                        vfHasColor[nOut] = true;
+                    }
+                }
+            }
+        }
+        else if (txout.HasColor()) {
+            // Making 0-value output with color is invalid
+            if (txout.nValue == 0)
+                return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-zero-value");
+            std::pair<maptype::iterator, bool> ret = mapcolor.emplace(txout.color, -txout.nValue);
+            if (!ret.second)
+                ret.first->second -= txout.nValue;
+        }
+    }
+
+    if (tx.IsCoinBase())
+        return true;
+
+    for (auto &txin : tx.vin)
+    {
+        const CTxOut& prev = inputs.AccessCoin(txin.prevout).out;
+
+        const uint32_t nColorType = (txin.nSequence & CTxIn::SEQUENCE_COLOR_MASK);
+
+        // If the nColorType bits are not set, color of the input (if any) is irrecoverably discarded.
+        // The coins are transferred as null-color bitcoin.
+        if (nColorType) {
+            uint256 color;
+            // Null-color inputs cannot use SEQUENCE_COLOR_TRANSFER. For simple value transfer they should unset the
+            // nColorType bits. For color genesis they may use SEQUENCE_COLOR_SCRIPT or SEQUENCE_COLOR_PREVOUT
+            if (nColorType == CTxIn::SEQUENCE_COLOR_TRANSFER) {
+                if (!prev.HasColor())
+                    return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-sequence");
+                color = prev.color;
+            }
+
+                // When SEQUENCE_COLOR_PREVOUT or SEQUENCE_COLOR_SCRIPT is used, the input must originally have null color.
+                // SEQUENCE_COLOR_PREVOUT color genesis is guaranteed to be an one-off event for a given color (with BIP30)
+                // SEQUENCE_COLOR_SCRIPT color genesis could be repeated by spending UTXOs with the same scriptPubKey.
+                // A future scripting system might optionally impose restrictions on this ability.
+            else {
+                if (prev.HasColor())
+                    return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-sequence");
+                CHashWriter ss(SER_GETHASH, 0);
+                ss << nColorType;
+                if (nColorType == CTxIn::SEQUENCE_COLOR_SCRIPT)
+                    ss << prev.scriptPubKey;
+                else // SEQUENCE_COLOR_PREVOUT
+                    ss << txin.prevout;
+                color = ss.GetHash();
+            }
+            // Count colored input value
+            std::pair<maptype::iterator, bool> ret = mapcolor.emplace(color, prev.nValue);
+            if (!ret.second)
+                ret.first->second += prev.nValue;
+        }
+        else if (prev.HasColor())
+            return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-sequence");
+    }
+
+    for (maptype::iterator it = mapcolor.begin(); it != mapcolor.end(); it++) {
+        if (it->second < 0)
+            return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-in-belowout");
+        if (it->second > 0 && mapColorFees) {
+            std::pair<maptype::iterator, bool> ret = mapColorFees->emplace(it->first, it->second);
+            if (!ret.second)
+                ret.first->second += it->second;
+        }
+    }
+    return true;
+}
+
 namespace {
 
 bool UndoWriteToDisk(const CBlockUndo& blockundo, CDiskBlockPos& pos, const uint256& hashBlock, const CMessageHeader::MessageStartChars& messageStart)
@@ -1744,6 +1864,8 @@ static bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockInd
     blockundo.vtxundo.reserve(block.vtx.size() - 1);
     std::vector<PrecomputedTransactionData> txdata;
     txdata.reserve(block.vtx.size()); // Required so that pointers to individual PrecomputedTransactionData don't get invalidated
+    std::map<uint256, CAmount> mapColorFees;
+    const bool colorEnabled = IsColorEnabled(pindex->pprev, chainparams.GetConsensus());
     for (unsigned int i = 0; i < block.vtx.size(); i++)
     {
         const CTransaction &tx = *(block.vtx[i]);
@@ -1796,7 +1918,18 @@ static bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockInd
         if (i > 0) {
             blockundo.vtxundo.push_back(CTxUndo());
         }
-        UpdateCoins(tx, view, i == 0 ? undoDummy : blockundo.vtxundo.back(), pindex->nHeight);
+
+        if (colorEnabled && !CheckColor(tx, state, view, &mapColorFees))
+            return false;
+
+        if (!colorEnabled && tx.IsColorVersion()) {
+            CMutableTransaction mtx(tx);
+            for (auto& mtxout : mtx.vout)
+                mtxout.SetColorNull();
+            UpdateCoins(mtx, view, i == 0 ? undoDummy : blockundo.vtxundo.back(), pindex->nHeight);
+        }
+        else
+            UpdateCoins(tx, view, i == 0 ? undoDummy : blockundo.vtxundo.back(), pindex->nHeight);
 
         vPos.push_back(std::make_pair(tx.GetHash(), pos));
         pos.nTxOffset += ::GetSerializeSize(tx, SER_DISK, CLIENT_VERSION);
@@ -1810,6 +1943,16 @@ static bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockInd
                          error("ConnectBlock(): coinbase pays too much (actual=%d vs limit=%d)",
                                block.vtx[0]->GetValueOut(), blockReward),
                                REJECT_INVALID, "bad-cb-amount");
+
+    if (colorEnabled) {
+        for (auto &txout : block.vtx[0]->vout) {
+            if (txout.HasColor()) {
+                std::map<uint256, CAmount>::iterator it = mapColorFees.find(txout.color);
+                if (it == mapColorFees.end() || (it->second -= txout.nValue) < 0)
+                    return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-fees");
+            }
+        }
+    }
 
     if (!control.Wait())
         return state.DoS(100, error("%s: CheckQueue failed", __func__), REJECT_INVALID, "block-validation-failed");
@@ -2632,6 +2775,9 @@ static bool ReceivedBlockTransactions(const CBlock &block, CValidationState& sta
     if (IsWitnessEnabled(pindexNew->pprev, consensusParams)) {
         pindexNew->nStatus |= BLOCK_OPT_WITNESS;
     }
+    if (IsColorEnabled(pindexNew->pprev, consensusParams)) {
+        pindexNew->nStatus |= BLOCK_OPT_COLOR;
+    }
     pindexNew->RaiseValidity(BLOCK_VALID_TRANSACTIONS);
     setDirtyBlockIndex.insert(pindexNew);
 
@@ -2849,6 +2995,12 @@ bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& pa
 {
     LOCK(cs_main);
     return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE);
+}
+
+bool IsColorEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+{
+    LOCK(cs_main);
+    return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_COLOR, versionbitscache) == THRESHOLD_ACTIVE);
 }
 
 // Compute at which vout of the block's coinbase transaction the witness
@@ -3755,6 +3907,9 @@ bool RewindBlockIndex(const CChainParams& params)
         if (IsWitnessEnabled(chainActive[nHeight - 1], params.GetConsensus()) && !(chainActive[nHeight]->nStatus & BLOCK_OPT_WITNESS)) {
             break;
         }
+        if (IsColorEnabled(chainActive[nHeight - 1], params.GetConsensus()) && !(chainActive[nHeight]->nStatus & BLOCK_OPT_COLOR)) {
+            break;
+        }
         nHeight++;
     }
 
@@ -3789,7 +3944,8 @@ bool RewindBlockIndex(const CChainParams& params)
         // this block or some successor doesn't HAVE_DATA, so we were unable to
         // rewind all the way.  Blocks remaining on chainActive at this point
         // must not have their validity reduced.
-        if (IsWitnessEnabled(pindexIter->pprev, params.GetConsensus()) && !(pindexIter->nStatus & BLOCK_OPT_WITNESS) && !chainActive.Contains(pindexIter)) {
+        if ((IsWitnessEnabled(pindexIter->pprev, params.GetConsensus()) && !(pindexIter->nStatus & BLOCK_OPT_WITNESS) && !chainActive.Contains(pindexIter)) ||
+            (IsColorEnabled(pindexIter->pprev, params.GetConsensus()) && !(pindexIter->nStatus & BLOCK_OPT_COLOR) && !chainActive.Contains(pindexIter))) {
             // Reduce validity
             pindexIter->nStatus = std::min<unsigned int>(pindexIter->nStatus & BLOCK_VALID_MASK, BLOCK_VALID_TREE) | (pindexIter->nStatus & ~BLOCK_VALID_MASK);
             // Remove have-data flags.
