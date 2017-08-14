@@ -1395,8 +1395,8 @@ bool CheckColor(const CTransaction& tx, CValidationState& state, const CCoinsVie
 
         const uint32_t nColorType = (txin.nSequence & CTxIn::SEQUENCE_COLOR_MASK);
 
-        // If the nColorType bits are not set, color of the input (if any) is irrecoverably discarded.
-        // The coins are transferred as null-color bitcoin.
+        // If the nColorType bits are not set (SEQUENCE_COLOR_NULL), color of the input (if any) is irrecoverably
+        // discarded. The coins are transferred as null-color bitcoin.
         if (nColorType) {
             uint256 color;
             // Null-color inputs cannot use SEQUENCE_COLOR_TRANSFER. For simple value transfer they should unset the
@@ -1407,13 +1407,11 @@ bool CheckColor(const CTransaction& tx, CValidationState& state, const CCoinsVie
                 color = prev.color;
             }
 
-                // When SEQUENCE_COLOR_PREVOUT or SEQUENCE_COLOR_SCRIPT is used, the input must originally have null color.
-                // SEQUENCE_COLOR_PREVOUT color genesis is guaranteed to be an one-off event for a given color (with BIP30)
-                // SEQUENCE_COLOR_SCRIPT color genesis could be repeated by spending UTXOs with the same scriptPubKey.
-                // A future scripting system might optionally impose restrictions on this ability.
+            // When SEQUENCE_COLOR_PREVOUT or SEQUENCE_COLOR_SCRIPT is used, the input must originally have null color.
+            // SEQUENCE_COLOR_PREVOUT color genesis is guaranteed to be an one-off event for a given color (with BIP30)
+            // SEQUENCE_COLOR_SCRIPT color genesis could be repeated by spending UTXOs with the same scriptPubKey.
+            // A future scripting system might optionally impose restrictions on this ability.
             else {
-                if (prev.HasColor())
-                    return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-sequence");
                 CHashWriter ss(SER_GETHASH, 0);
                 ss << nColorType;
                 if (nColorType == CTxIn::SEQUENCE_COLOR_SCRIPT)
@@ -1427,8 +1425,6 @@ bool CheckColor(const CTransaction& tx, CValidationState& state, const CCoinsVie
             if (!ret.second)
                 ret.first->second += prev.nValue;
         }
-        else if (prev.HasColor())
-            return state.DoS(0, false, REJECT_INVALID, "bad-txns-color-sequence");
     }
 
     for (maptype::iterator it = mapcolor.begin(); it != mapcolor.end(); it++) {
@@ -1914,18 +1910,18 @@ static bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockInd
             control.Add(vChecks);
         }
 
+        if (colorEnabled && !CheckColor(tx, state, view, &mapColorFees))
+            return false;
+
         CTxUndo undoDummy;
         if (i > 0) {
             blockundo.vtxundo.push_back(CTxUndo());
         }
 
-        if (colorEnabled && !CheckColor(tx, state, view, &mapColorFees))
-            return false;
-
         if (!colorEnabled && tx.IsColorVersion()) {
             CMutableTransaction mtx(tx);
             for (auto& mtxout : mtx.vout)
-                mtxout.SetColorNull();
+                mtxout.color.SetNull();
             UpdateCoins(mtx, view, i == 0 ? undoDummy : blockundo.vtxundo.back(), pindex->nHeight);
         }
         else

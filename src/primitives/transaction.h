@@ -171,11 +171,6 @@ public:
         color.SetNull();
     }
 
-    void SetColorNull()
-    {
-        color.SetNull();
-    }
-
     bool HasColor() const
     {
         return (!color.IsNull() && !IsNull());
@@ -254,7 +249,7 @@ inline void UnserializeTransaction(TxType& tx, Stream& s) {
     s >> tx.nLockTime;
 
     // Interpret color commitments. It does not catch invalid commitment formats, which will be inspected with
-    // Consensus::CheckColor later. Legacy transactions and coinbase transactions are ignored.
+    // CheckColor later. Legacy transactions and coinbase transactions are ignored.
     if (static_cast<uint32_t>(tx.nVersion) > 2) {
         for (auto& txout : tx.vout) {
             const CScript& scriptPubKey = txout.scriptPubKey;
