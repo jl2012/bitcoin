@@ -186,6 +186,7 @@ enum opcodetype
 
     // MSV0
     OP_CHECKSIGFROMSTACKVERIFY = 0xba,
+    OP_PUSHTXDATA = 0xbb,
 
     // template matching params
     OP_SMALLINTEGER = 0xfa,
@@ -204,7 +205,7 @@ enum
 };
 
 // Maximum value that an opcode can be
-static const unsigned int MAX_OPCODE = OP_CHECKSIGFROMSTACKVERIFY;
+static const unsigned int MAX_OPCODE = OP_PUSHTXDATA;
 
 const char* GetOpName(opcodetype opcode);
 

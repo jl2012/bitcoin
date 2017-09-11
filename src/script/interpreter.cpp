@@ -13,6 +13,7 @@
 #include "script/script.h"
 #include "uint256.h"
 #include "consensus/merkle.h"
+#include "consensus/validation.h"
 
 typedef std::vector<unsigned char> valtype;
 
@@ -1542,6 +1543,50 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 }
                 break;
 
+                case OP_PUSHTXDATA:
+                {
+                    if (stack.size() < 1)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    const int nType = CScriptNum(stacktop(-1), fRequireMinimal).getint();
+                    popstack(stack);
+                    if (nType < TXDATA_THIS_VIN_INDEX || nType > TXDATA_VOUT)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                    else if (nType <= TXDATA_WEIGHT)
+                        stack.push_back(checker.PushTxData(nType, 0));
+                    else {
+                        if (stack.size() < 1)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        int nIndex = CScriptNum(stacktop(-1), fRequireMinimal).getint();
+                        popstack(stack);
+                        if (nIndex < -1)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        if (nIndex == -1)
+                            nIndex = CScriptNum(checker.PushTxData(TXDATA_THIS_VIN_INDEX, 0), false).getint();
+                        if (nType <= TXDATA_VIN) {
+                            if (nIndex >= CScriptNum(checker.PushTxData(TXDATA_VIN_SIZE, 0), false).getint())
+                                return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                            if (nType == TXDATA_VIN_PREVOUT || nType == TXDATA_VIN) {
+                                stack.push_back(checker.PushTxData(TXDATA_VIN_PREVOUT_HASH, nIndex));
+                                stack.push_back(checker.PushTxData(TXDATA_VIN_PREVOUT_N, nIndex));
+                            }
+                            if (nType == TXDATA_VIN_SEQUENCE || nType == TXDATA_VIN)
+                                stack.push_back(checker.PushTxData(TXDATA_VIN_SEQUENCE, nIndex));
+                        }
+                        else {
+                            if (nIndex >= CScriptNum(checker.PushTxData(TXDATA_VOUT_SIZE, 0), false).getint())
+                                return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                            if (nType == TXDATA_VOUT_VALUE || nType == TXDATA_VOUT)
+                                stack.push_back(checker.PushTxData(TXDATA_VOUT_VALUE, nIndex));
+                            if (nType == TXDATA_VOUT_SCRIPTPUBKEY || nType == TXDATA_VOUT)
+                                stack.push_back(checker.PushTxData(TXDATA_VOUT_SCRIPTPUBKEY, nIndex));
+                        }
+                    }
+                    if (stack.back().size() > MAX_SCRIPT_ELEMENT_SIZE)
+                        return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+                }
+                break;
+
                 default:
                     return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
             }
@@ -1937,6 +1982,67 @@ bool TransactionSignatureChecker::CheckSequence(const CScriptNum& nSequence) con
         return false;
 
     return true;
+}
+
+std::vector<unsigned char> TransactionSignatureChecker::PushTxData(const int& nType, const int& nIndex) const
+{
+    switch(nType)
+    {
+        case TXDATA_THIS_VIN_INDEX:
+        case TXDATA_VIN_SIZE:
+        case TXDATA_VOUT_SIZE:
+        case TXDATA_THIS_VIN_VALUE:
+        case TXDATA_FEE:
+        case TXDATA_VERSION:
+        case TXDATA_LOCKTIME:
+        case TXDATA_BASE_SIZE:
+        case TXDATA_TOTAL_SIZE:
+        case TXDATA_WEIGHT:
+        case TXDATA_VIN_SEQUENCE:
+        case TXDATA_VOUT_VALUE:
+        case TXDATA_VIN_PREVOUT_N:
+        {
+            CScriptNum bn(0);
+            switch(nType) {
+                case TXDATA_THIS_VIN_INDEX: bn = nIn; break;
+                case TXDATA_VIN_SIZE:       bn = txTo->vin.size(); break;
+                case TXDATA_VOUT_SIZE:      bn = txTo->vout.size(); break;
+                case TXDATA_THIS_VIN_VALUE: bn = amount; break;
+                case TXDATA_FEE:            bn = nFees; break;
+                case TXDATA_VERSION:        bn = static_cast<uint32_t>(txTo->nVersion); break;
+                case TXDATA_LOCKTIME:       bn = static_cast<uint32_t>(txTo->nLockTime); break;
+                case TXDATA_BASE_SIZE:      bn = ::GetSerializeSize(*txTo, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS); break;
+                case TXDATA_TOTAL_SIZE:     bn = ::GetSerializeSize(*txTo, SER_NETWORK, PROTOCOL_VERSION); break;
+                case TXDATA_WEIGHT:         bn = GetTransactionWeight(*txTo); break;
+                case TXDATA_VIN_SEQUENCE:   bn = static_cast<uint32_t>(txTo->vin[nIndex].nSequence); break;
+                case TXDATA_VOUT_VALUE:     bn = txTo->vout[nIndex].nValue; break;
+                case TXDATA_VIN_PREVOUT_N:  bn = txTo->vin[nIndex].prevout.n; break;
+                default:                    assert(!"invalid txdata type"); break;
+            }
+            return bn.getvch();
+        }
+        break;
+
+        case TXDATA_VIN_PREVOUT_HASH:
+        {
+            valtype vchHash(32);
+            memcpy(&vchHash[0], &txTo->vin[nIndex].prevout.hash, 32);
+            return vchHash;
+        }
+        break;
+
+        case TXDATA_VOUT_SCRIPTPUBKEY:
+        {
+            const CScript& scriptPubKey = txTo->vout[nIndex].scriptPubKey;
+            valtype vchScript(scriptPubKey.size());
+            memcpy(&vchScript[0], &scriptPubKey[0], scriptPubKey.size());
+            return vchScript;
+        }
+        break;
+
+        default:
+            assert(!"invalid txdata type");
+    }
 }
 
 bool IsMSStack(std::vector<uint256>& vPath, uint32_t& nPosition, std::vector<std::vector<unsigned char> >& stack, std::vector<unsigned char>& vchKeyCode)

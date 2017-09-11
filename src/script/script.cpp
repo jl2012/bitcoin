@@ -141,6 +141,7 @@ const char* GetOpName(opcodetype opcode)
 
     // MSV0
     case OP_CHECKSIGFROMSTACKVERIFY: return "OP_CHECKSIGFROMSTACKVERIFY";
+    case OP_PUSHTXDATA             : return "OP_PUSHTXDATA";
 
     case OP_INVALIDOPCODE          : return "OP_INVALIDOPCODE";
 
