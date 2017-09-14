@@ -12,6 +12,7 @@
 #include "pubkey.h"
 #include "script/script.h"
 #include "uint256.h"
+#include "consensus/merkle.h"
 
 typedef std::vector<unsigned char> valtype;
 
@@ -1351,6 +1352,49 @@ bool TransactionSignatureChecker::CheckSequence(const CScriptNum& nSequence) con
     return true;
 }
 
+bool IsMSStack(std::vector<uint256>& vPath, uint32_t& nPosition, std::vector<std::vector<unsigned char> >& stack, std::vector<unsigned char>& vchKeyCode)
+{
+    if (stack.size() < 3)
+        return false;
+
+    // The last stack item is script version and script. The minimum valid size is 33 bytes. Since public key size is
+    // 33 bytes, any scripts smaller than this are not safe. A minimum size is needed because an attacker may try to
+    // execute a 32-byte intermediate hash as a script.
+    vchKeyCode = stack.back();
+    if (vchKeyCode.size() < 33)
+        return false;
+    stack.pop_back();
+
+    // The second last stack item is the path. Size must be 0 to 1024, and divisible by 32
+    // Depth of the Merkle tree is implied by the size of path (0 to 32)
+    if (stack.back().size() & 0x1f || stack.back().size() > 1024)
+        return false;
+    const size_t depth = stack.back().size() >> 5;
+    // Path is a vector of 32-byte hashes
+    vPath.resize(depth);
+    for (unsigned int j = 0; j < depth; j++)
+        memcpy(vPath[j].begin(), &stack.back()[32 * j], 32);
+    stack.pop_back();
+
+    // The third last item encodes the position (as CScriptNum). It must be minimally encoded
+    try
+    {
+        const CScriptNum pos(stack.back(), true, 5);
+        if (pos < 0 || pos >= (1ULL << depth))
+            return false;
+        nPosition = pos.getint64();
+    }
+    catch (...)
+    {
+        return false;
+    }
+
+    stack.pop_back();
+
+    // Unused stack items become the stack of the following step
+    return true;
+}
+
 static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, const std::vector<unsigned char>& program, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
 {
     std::vector<std::vector<unsigned char> > stack;
@@ -1379,6 +1423,45 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         } else {
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
         }
+    } else if (witversion == 1 && program.size() >= 32 && (flags & SCRIPT_VERIFY_MSV0)) {
+        std::vector<unsigned char> vchKeyCode;
+        stack = witness.stack;
+        if (program.size() == 32) {
+            uint256 hashScript;
+            std::vector<uint256> vPath;
+            uint32_t nPosition;
+
+            if (!IsMSStack(vPath, nPosition, stack, vchKeyCode))
+                return set_error(serror, SCRIPT_ERR_INVALID_MS_STACK);
+
+            // Calculate the script hash.
+            CSHA256().Write(&vchKeyCode[0], vchKeyCode.size()).Finalize(hashScript.begin());
+
+            // Calculate MAST Root and compare against witness program
+            uint256 hashScriptRoot = ComputeMerkleRootFromBranch(hashScript, vPath, nPosition);
+            if (memcmp(hashScriptRoot.begin(), &program[0], 32))
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+        }
+
+        if (vchKeyCode[0] == 0) {
+            // Check the size of input stack
+            for (unsigned int i = 0; i < stack.size(); i++) {
+                if (stack.at(i).size() > MAX_SCRIPT_ELEMENT_SIZE)
+                    return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+            }
+
+            scriptPubKey = CScript(vchKeyCode.begin() + 1, vchKeyCode.end());
+            if (!EvalScript(stack, scriptPubKey, flags, checker, SIGVERSION_MSV0, serror))
+                return false;
+
+            if (stack.size() != 1)
+                return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+            if (!CastToBool(stack.back()))
+                return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+        }
+        else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM)
+            return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
+        return set_success(serror);
     } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) {
         return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
     } else {
