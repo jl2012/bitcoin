@@ -695,6 +695,8 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
         if (!Consensus::CheckTxInputs(tx, state, view, GetSpendHeight(view), nFees)) {
             return error("%s: Consensus::CheckTxInputs: %s, %s", __func__, tx.GetHash().ToString(), FormatStateMessage(state));
         }
+        if (!Consensus::CheckToken(tx, state, view))
+            return false;
 
         // Check for non-standard pay-to-script-hash in inputs
         if (fRequireStandard && !AreInputsStandard(tx, view))
@@ -2025,6 +2027,8 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
             if (!Consensus::CheckTxInputs(tx, state, view, pindex->nHeight, txfee)) {
                 return error("%s: Consensus::CheckTxInputs: %s, %s", __func__, tx.GetHash().ToString(), FormatStateMessage(state));
             }
+            if (!Consensus::CheckToken(tx, state, view))
+                return false;
             nFees += txfee;
             if (!MoneyRange(nFees)) {
                 return state.DoS(100, error("%s: accumulated fee in the block out of range.", __func__),

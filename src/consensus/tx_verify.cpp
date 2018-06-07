@@ -248,3 +248,69 @@ bool Consensus::CheckTxInputs(const CTransaction& tx, CValidationState& state, c
     txfee = txfee_aux;
     return true;
 }
+
+bool Consensus::CheckToken(const CTransaction& tx, CValidationState& state, const CCoinsViewCache& inputs)
+{
+    for (unsigned int i = 0; i < tx.vin.size(); ++i) {
+        const CTxIn& txin = tx.vin[i];
+        const Coin& coin = inputs.AccessCoin(txin.prevout);
+        assert(!coin.IsSpent());
+
+        int in_witver;
+        std::vector<unsigned char> in_witprog;
+        if (coin.out.scriptPubKey.IsWitnessProgram(in_witver, in_witprog) && in_witver == 16 && (in_witprog.size() == 32 || in_witprog.size() == 33)) {
+            const std::vector<std::vector<unsigned char> >& witstack = txin.scriptWitness.stack;
+            if (witstack.size() < 2 || witstack.back().size() != 32)
+                return false;
+            const std::vector<unsigned char> &color = witstack.back();
+            const std::vector<unsigned char> &script = witstack[witstack.size()-2];
+            if (in_witprog.size() == 32) {
+                uint256 hash;
+                CSHA256().Write(&script[0], script.size()).Write(&color[0], color.size()).Finalize(hash.begin());
+                if (memcmp(hash.begin(), in_witprog.data(), 32))
+                    return false;
+            }
+            else {
+                unsigned char mint_type = in_witprog[0];
+                CHashWriter ss(SER_GETHASH, 0);
+                ss << mint_type;
+                if (mint_type == 0)
+                    ss << txin.prevout;
+                else if (mint_type == 1)
+                    ss << coin.out.scriptPubKey;
+                else
+                    return false;
+                const uint256 color_hash = ss.GetHash();
+                if (memcmp(color_hash.begin(), color.data(), 32))
+                    return false;
+                uint256 script_hash;
+                CSHA256().Write(&script[0], script.size()).Finalize(script_hash.begin());
+                if (memcmp(script_hash.begin(), &in_witprog[1], 32))
+                    return false;
+            }
+            if (tx.vout.size() > i) {
+                int out_witver;
+                std::vector<unsigned char> out_witprog;
+                if (tx.vout[i].scriptPubKey.IsWitnessProgram(out_witver, out_witprog) && out_witver == 16 && out_witprog.size() == 32) {
+                    if (witstack.size() < 3)
+                        return false;
+                    const std::vector<unsigned char> &new_script = witstack[witstack.size()-3];
+                    uint256 new_hash;
+                    CSHA256().Write(&new_script[0], new_script.size()).Write(&color[0], color.size()).Finalize(new_hash.begin());
+                    if (memcmp(new_hash.begin(), out_witprog.data(), 32))
+                        return false;
+                }
+            }
+        }
+        else if (tx.vout.size() > i) {
+            if (tx.vout[i].scriptPubKey.size() == 34 && tx.vout[i].scriptPubKey[0] == OP_16 && tx.vout[i].scriptPubKey[1] == 0x20)
+                return false;
+        }
+    }
+    if (tx.vout.size() > tx.vin.size()) {
+        for (unsigned int i = tx.vin.size()-1; i < tx.vout.size(); ++i) {
+            if (tx.vout[i].scriptPubKey.size() == 34 && tx.vout[i].scriptPubKey[0] == OP_16 && tx.vout[i].scriptPubKey[1] == 0x20)
+                return false;
+        }
+    }
+}

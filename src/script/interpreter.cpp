@@ -1416,8 +1416,7 @@ bool GenericTransactionSignatureChecker<T>::CheckSequence(const CScriptNum& nSeq
 template class GenericTransactionSignatureChecker<CTransaction>;
 template class GenericTransactionSignatureChecker<CMutableTransaction>;
 
-static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, const std::vector<unsigned char>& program, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
-{
+static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, const std::vector<unsigned char>& program, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror) {
     std::vector<std::vector<unsigned char> > stack;
     CScript scriptPubKey;
 
@@ -1444,6 +1443,19 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         } else {
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
         }
+    } else if (witversion == 16 && (program.size() == 32 || program.size() == 33)) {
+        if (witness.stack.size() < 3)
+            return false;
+        const std::vector<unsigned char>& color_script = witness.stack[witness.stack.size()-2];
+        if (color_script.size() < 3 || color_script.size() > 41)
+            return false;
+        unsigned int witversion2 = color_script[0];
+        if (witversion2 > 15)
+            return false;
+        std::vector<unsigned char> program2(color_script.begin()+1, color_script.end());
+        CScriptWitness witness2;
+        witness2.stack = std::vector<std::vector<unsigned char> >(witness.stack.begin(), witness.stack.end() - 3);
+        VerifyWitnessProgram(witness2, witversion2, program2, flags, checker, serror);
     } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) {
         return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
     } else {
@@ -1552,6 +1564,8 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
                     // reintroduce malleability.
                     return set_error(serror, SCRIPT_ERR_WITNESS_MALLEATED_P2SH);
                 }
+                if (witnessversion == 16 && (witnessprogram.size() == 32 || witnessprogram.size() == 33))
+                    return false;
                 if (!VerifyWitnessProgram(*witness, witnessversion, witnessprogram, flags, checker, serror)) {
                     return false;
                 }
