@@ -95,6 +95,8 @@ const char* ScriptErrorString(const ScriptError serror)
             return "Signature is found in scriptCode";
         case SCRIPT_ERR_SIG_SIZE:
             return "Invalid signature size";
+        case SCRIPT_ERR_WEIGHT_SIGOP_RATIO:
+            return "Too many successful OP_CHECKSIG relatively to witness size";
         case SCRIPT_ERR_UNKNOWN_ERROR:
         case SCRIPT_ERR_ERROR_COUNT:
         default: break;

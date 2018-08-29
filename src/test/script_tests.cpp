@@ -100,6 +100,7 @@ static ScriptErrorDesc script_errors[]={
     {SCRIPT_ERR_OP_CODESEPARATOR, "OP_CODESEPARATOR"},
     {SCRIPT_ERR_SIG_FINDANDDELETE, "SIG_FINDANDDELETE"},
     {SCRIPT_ERR_SIG_SIZE, "SIG_SIZE"},
+    {SCRIPT_ERR_WEIGHT_SIGOP_RATIO, "WEIGHT_SIGOP_RATIO"},
 };
 
 static const char *FormatScriptError(ScriptError_t err)
