@@ -27,6 +27,21 @@ enum
     SIGHASH_ANYONECANPAY = 0x80,
 };
 
+enum
+{
+    SIGHASH2_ALL = 0,
+    SIGHASH2_SINGLEINPUT = (1U << 0),
+    SIGHASH2_NOINPUT = (1U << 1),
+    SIGHASH2_MATCHOUTPUT = (1U << 2),
+    SIGHASH2_LASTOUTPUT = (1U << 3),
+    SIGHASH2_DUALOUTPUT = SIGHASH2_MATCHOUTPUT | SIGHASH2_LASTOUTPUT,
+    SIGHASH2_NOOUTPUT = (1U << 4),
+    SIGHASH2_NOFEES = (1U << 5),
+    SIGHASH2_NOWITNESSSIZE = (1U << 6),
+    SIGHASH2_INPUT_MASK = SIGHASH2_SINGLEINPUT | SIGHASH2_NOINPUT,
+    SIGHASH2_OUTPUT_MASK = SIGHASH2_DUALOUTPUT | SIGHASH2_NOOUTPUT,
+};
+
 /** Script verification flags.
  *
  *  All flags are intended to be soft forks: the set of acceptable scripts under
@@ -117,7 +132,12 @@ enum
     SCRIPT_VERIFY_CONST_SCRIPTCODE = (1U << 16),
 };
 
-bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);
+enum class SigVersion
+{
+    BASE = 0,
+    WITNESS_V0 = 1,
+    WITNESS_V1 = 2,
+};
 
 struct TxMetaData
 {
@@ -129,18 +149,14 @@ struct TxMetaData
 
 struct PrecomputedTransactionData
 {
-    uint256 hashPrevouts, hashSequence, hashOutputs;
-    bool ready = false;
+    uint256 hashPrevouts, hashSequence, hashOutputs, input_value_hash;
+    SigVersion level = SigVersion::BASE;
 
     template <class T>
     explicit PrecomputedTransactionData(const T& tx, const TxMetaData& txmeta);
 };
 
-enum class SigVersion
-{
-    BASE = 0,
-    WITNESS_V0 = 1,
-};
+bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, const SigVersion &sigversion, ScriptError* serror);
 
 /** Signature hash sizes */
 static constexpr size_t WITNESS_V0_SCRIPTHASH_SIZE = 32;

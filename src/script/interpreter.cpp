@@ -197,10 +197,19 @@ bool static IsDefinedHashtypeSignature(const valtype &vchSig) {
     return true;
 }
 
-bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror) {
+bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, const SigVersion &sigversion, ScriptError* serror) {
     // Empty signature. Not strictly DER encoded, but allowed to provide a
     // compact way to provide an invalid signature for use with CHECK(MULTI)SIG
     if (vchSig.size() == 0) {
+        return true;
+    }
+    if (sigversion == SigVersion::WITNESS_V1) {
+        if (vchSig.size() == 64)
+            return true;
+        if (vchSig.size() != 65)
+            return set_error(serror, SCRIPT_ERR_SIG_SIZE);
+        if (vchSig.back() == 0 || (vchSig.back() & SIGHASH2_INPUT_MASK) == SIGHASH2_INPUT_MASK || (vchSig.back() & SIGHASH2_OUTPUT_MASK) > SIGHASH2_NOOUTPUT)
+            return set_error(serror, SCRIPT_ERR_SIG_HASHTYPE);
         return true;
     }
     if ((flags & (SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC)) != 0 && !IsValidSignatureEncoding(vchSig)) {
@@ -931,7 +940,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                             return set_error(serror, SCRIPT_ERR_SIG_FINDANDDELETE);
                     }
 
-                    if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
+                    if (!CheckSignatureEncoding(vchSig, flags, sigversion, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
                         //serror is set
                         return false;
                     }
@@ -1007,7 +1016,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         // Note how this makes the exact order of pubkey/signature evaluation
                         // distinguishable by CHECKMULTISIG NOT if the STRICTENC flag is set.
                         // See the script_(in)valid tests for details.
-                        if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
+                        if (!CheckSignatureEncoding(vchSig, flags, sigversion, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
                             // serror is set
                             return false;
                         }
@@ -1081,6 +1090,15 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
         return set_error(serror, SCRIPT_ERR_UNBALANCED_CONDITIONAL);
 
     return set_success(serror);
+}
+
+uint256 GetInputsValueHash(const TxMetaData& txmeta)
+{
+    CHashWriter ss(SER_GETHASH, 0);
+    for (const auto& value : txmeta.m_txin_value) {
+        ss << value;
+    }
+    return ss.GetHash();
 }
 
 namespace {
@@ -1222,7 +1240,12 @@ PrecomputedTransactionData::PrecomputedTransactionData(const T& txTo, const TxMe
         hashPrevouts = GetPrevoutHash(txTo);
         hashSequence = GetSequenceHash(txTo);
         hashOutputs = GetOutputsHash(txTo);
-        ready = true;
+        if (txmeta.m_txin_value.size() == txTo.vin.size()) {
+            input_value_hash = GetInputsValueHash(txmeta);
+            level = SigVersion::WITNESS_V1;
+        }
+        else
+            level = SigVersion::WITNESS_V0;
     }
 }
 
@@ -1234,12 +1257,13 @@ template <class T>
 uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CTxOut& txout_spent, const TxMetaData& txmeta, SigVersion sigversion, const PrecomputedTransactionData* cache)
 {
     assert(nIn < txTo.vin.size());
+    const CTxIn& txin = txTo.vin[nIn];
 
     if (sigversion == SigVersion::WITNESS_V0) {
         uint256 hashPrevouts;
         uint256 hashSequence;
         uint256 hashOutputs;
-        const bool cacheready = cache && cache->ready;
+        const bool cacheready = cache && (cache->level >= SigVersion::WITNESS_V0);
 
         if (!(nHashType & SIGHASH_ANYONECANPAY)) {
             hashPrevouts = cacheready ? cache->hashPrevouts : GetPrevoutHash(txTo);
@@ -1267,10 +1291,10 @@ uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn
         // The input being signed (replacing the scriptSig with scriptCode + amount)
         // The prevout may already be contained in hashPrevout, and the nSequence
         // may already be contain in hashSequence.
-        ss << txTo.vin[nIn].prevout;
+        ss << txin.prevout;
         ss << scriptCode;
         ss << txout_spent.nValue;
-        ss << txTo.vin[nIn].nSequence;
+        ss << txin.nSequence;
         // Outputs (none/one/all, depending on flags)
         ss << hashOutputs;
         // Locktime
@@ -1278,6 +1302,73 @@ uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn
         // Sighash type
         ss << nHashType;
 
+        return ss.GetHash();
+    }
+
+    if (sigversion == SigVersion::WITNESS_V1) {
+        uint256 hashPrevouts;
+        uint256 hashSequence;
+        uint256 hashOutputs;
+        uint256 input_value_hash;
+        SigVersion cachelevel = cache ? cache->level : SigVersion::BASE;
+
+        // Inputs
+        const int inputtype = nHashType & SIGHASH2_INPUT_MASK;
+        if (inputtype == SIGHASH2_ALL) {
+            assert(txmeta.m_txin_value.size() == txTo.vin.size());
+            hashPrevouts = cachelevel >= SigVersion::WITNESS_V0 ? cache->hashPrevouts : GetPrevoutHash(txTo);
+            input_value_hash = cachelevel >= SigVersion::WITNESS_V1 ? cache->input_value_hash : GetInputsValueHash(txmeta);
+        }
+
+        // Outputs
+        const int outputtype = nHashType & SIGHASH2_OUTPUT_MASK;
+        if (outputtype == SIGHASH2_ALL) {
+            hashOutputs = cachelevel >= SigVersion::WITNESS_V0 ? cache->hashOutputs : GetOutputsHash(txTo);
+        }
+        else if (outputtype < SIGHASH2_NOOUTPUT) {
+            CHashWriter ss(SER_GETHASH, 0);
+            if (outputtype & SIGHASH2_MATCHOUTPUT) {
+                assert(nIn < txTo.vout.size());
+                ss << txTo.vout[nIn];
+            }
+            if (outputtype & SIGHASH2_LASTOUTPUT) {
+                ss << txTo.vout.back();
+            }
+            hashOutputs = ss.GetHash();
+        }
+
+        // Sequence
+        if (inputtype == SIGHASH2_ALL && outputtype == SIGHASH2_ALL) {
+            hashSequence = cachelevel >= SigVersion::WITNESS_V0 ? cache->hashSequence : GetSequenceHash(txTo);
+        }
+
+        const CAmount fees = nHashType & SIGHASH2_NOFEES ? 0 : txmeta.m_fees;
+        assert(MoneyRange(fees));
+        const uint32_t witness_size = nHashType & SIGHASH2_NOWITNESSSIZE ? 0 : ::GetSerializeSize(txin.scriptWitness.stack, SER_NETWORK, PROTOCOL_VERSION);
+        static const uint32_t sigtype = 0x01000000;
+
+        CHashWriter ss(SER_GETHASH, 0);
+        ss << txTo.nVersion;
+        ss << input_value_hash;
+        ss << hashPrevouts;
+        ss << hashSequence;
+        if (inputtype == SIGHASH2_NOINPUT) {
+            ss << COutPoint(uint256(), 0);
+            ss << CScript();
+            ss << CTxOut(txout_spent.nValue, CScript());
+        }
+        else {
+            ss << txin.prevout;
+            ss << scriptCode;
+            ss << txout_spent;
+        }
+        ss << txin.nSequence;
+        ss << hashOutputs;
+        ss << fees;
+        ss << witness_size;
+        ss << txTo.nLockTime;
+        ss << nHashType;
+        ss << sigtype;
         return ss.GetHash();
     }
 
@@ -1317,8 +1408,21 @@ bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned 
     std::vector<unsigned char> vchSig(vchSigIn);
     if (vchSig.empty())
         return false;
-    int nHashType = vchSig.back();
-    vchSig.pop_back();
+    int nHashType = 0;
+    if (sigversion == SigVersion::WITNESS_V1) {
+        if (vchSig.size() != 64) {
+            nHashType = vchSig.back();
+            vchSig.pop_back();
+            if ((nHashType & SIGHASH2_OUTPUT_MASK) == SIGHASH2_MATCHOUTPUT && nIn >= txTo->vout.size())
+                return false;
+            if ((nHashType & SIGHASH2_OUTPUT_MASK) == SIGHASH2_DUALOUTPUT && (nIn + 1) >= txTo->vout.size())
+                return false;
+        }
+    }
+    else {
+        nHashType = vchSig.back();
+        vchSig.pop_back();
+    }
 
     uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, m_txout_spent, m_txmeta, sigversion, this->txdata);
 
