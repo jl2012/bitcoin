@@ -249,4 +249,36 @@ BOOST_AUTO_TEST_CASE(merkle_test)
     }
 }
 
+BOOST_AUTO_TEST_CASE(ordered_merkle_test)
+{
+    static const uint256 hash1(uint256S("0000000000000000000000000000000000000000000000000000000000000001")); // 0100000000000000000000000000000000000000000000000000000000000000
+    static const uint256 hash2(uint256S("0200000000000000000000000000000000000000000000000000000000000000")); // 0000000000000000000000000000000000000000000000000000000000000002
+    static const uint256 hash3(uint256S("8888888888888888888888888888888888888888888888888888888888888888")); // 8888888888888888888888888888888888888888888888888888888888888888
+    static const uint256 hash4(uint256S("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")); // bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    static const uint256 expect1(uint256S("f0375702ec0166cede84a9c7b49d97124ec941672d6dab6c00fc1f254e00a21b")); // 1ba2004e251ffc006cab6d2d6741c94e12979db4c7a984dece6601ec025737f0
+    static const uint256 expect2(uint256S("ada268a9cde0357a0c60c479202533af37bcb599a4bca4cbc4f4a5e5544af5d6")); // d6f54a54e5a5f4c4cba4bca499b5bc37af33252079c4600c7a35e0cda968a2ad
+    static const uint256 expect3(uint256S("81edc3dbf53dcbcc77d2232cd8ac822e38a800f3ee4cf600bc1ea38996795e38")); // 385e799689a31ebc00f64ceef300a8382e82acd82c23d277cccb3df5dbc3ed81
+    static const uint256 expect4(uint256S("e0f99ee2a5dd631876ed1d5cd2831df1cadcce57af890ebc536e2e32daa45906")); // 0659a4da322e6e53bc0e89af57cedccaf11d83d25c1ded761863dda5e29ef9e0
+
+    std::vector<uint256> merkle_branch;
+    // If the branch is empty, root hash is the leaf hash.
+    BOOST_CHECK(ComputeOrderedMerkleRootFromBranch(hash1, merkle_branch) == hash1);
+    // Hashes are ordered lexicographically. The first byte is most significant.
+    // SHA256(00000000000000000000000000000000000000000000000000000000000000020100000000000000000000000000000000000000000000000000000000000000) = 1ba2004e251ffc006cab6d2d6741c94e12979db4c7a984dece6601ec025737f0
+    merkle_branch.push_back(hash1);
+    BOOST_CHECK(ComputeOrderedMerkleRootFromBranch(hash2, merkle_branch) == expect1);
+    // Swapping hash1 and hash2 should give the same result
+    merkle_branch[0] = hash2;
+    BOOST_CHECK(ComputeOrderedMerkleRootFromBranch(hash1, merkle_branch) == expect1);
+    // hash3 is bigger than expect1 and is serialzed later
+    merkle_branch.push_back(hash3);
+    BOOST_CHECK(ComputeOrderedMerkleRootFromBranch(hash1, merkle_branch) == expect2);
+    // hash4 is smaller than expect2 and is serialzed first
+    merkle_branch.push_back(hash4);
+    BOOST_CHECK(ComputeOrderedMerkleRootFromBranch(hash1, merkle_branch) == expect3);
+    // Order is irrelevant if the two hashes are the same
+    merkle_branch.push_back(expect3);
+    BOOST_CHECK(ComputeOrderedMerkleRootFromBranch(hash1, merkle_branch) == expect4);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

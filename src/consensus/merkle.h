@@ -26,4 +26,12 @@ uint256 BlockMerkleRoot(const CBlock& block, bool* mutated = nullptr);
  */
 uint256 BlockWitnessMerkleRoot(const CBlock& block, bool* mutated = nullptr);
 
+/*
+ * Compute the Merkle root with a leaf and a branch.
+ * At every level, the two hashes from lower level are compared lexicographically (first byte being most significant).
+ * Merkle hash is the single SHA256 of the two hashes serialed, the smaller first.
+ * If the branch is empty, root hash is the leaf hash.
+ */
+uint256 ComputeOrderedMerkleRootFromBranch(const uint256& leaf, const std::vector<uint256>& merkle_branch);
+
 #endif // BITCOIN_CONSENSUS_MERKLE_H

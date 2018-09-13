@@ -84,3 +84,14 @@ uint256 BlockWitnessMerkleRoot(const CBlock& block, bool* mutated)
     return ComputeMerkleRoot(std::move(leaves), mutated);
 }
 
+uint256 ComputeOrderedMerkleRootFromBranch(const uint256& leaf, const std::vector<uint256>& merkle_branch)
+{
+    uint256 hash = leaf;
+    for (std::vector<uint256>::const_iterator it = merkle_branch.begin(); it != merkle_branch.end(); ++it) {
+        if (*it < hash)
+            CSHA256().Write(it->begin(), 32).Write(hash.begin(), 32).Finalize(hash.begin());
+        else
+            CSHA256().Write(hash.begin(), 32).Write(it->begin(), 32).Finalize(hash.begin());
+    }
+    return hash;
+}
