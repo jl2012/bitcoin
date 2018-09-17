@@ -923,9 +923,19 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
 
                 case OP_CHECKSIG:
                 case OP_CHECKSIGVERIFY:
+                case OP_CHECKSIGADD:
                 {
+                    // (sig n pubkey -- n+bool)
+                    // A combo opcode equivalent to `<sig> <n> OP_SWAP <pubkey> OP_CHECKSIG OP_ADD`
+                    if (opcode == OP_CHECKSIGADD) {
+                        if (sigversion < SigVersion::WITNESS_V1)
+                            return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+                        if (stack.size() < 3)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        swap(stacktop(-3), stacktop(-2));
+                    }
                     // (sig pubkey -- bool)
-                    if (stack.size() < 2)
+                    else if (stack.size() < 2)
                         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
                     valtype& vchSig    = stacktop(-2);
@@ -954,7 +964,16 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
 
                     popstack(stack);
                     popstack(stack);
-                    stack.push_back(fSuccess ? vchTrue : vchFalse);
+                    if (opcode == OP_CHECKSIGADD) {
+                        if (fSuccess) {
+                            CScriptNum bn(stacktop(-1), fRequireMinimal);
+                            bn += bnOne;
+                            popstack(stack);
+                            stack.push_back(bn.getvch());
+                        }
+                    }
+                    else
+                        stack.push_back(fSuccess ? vchTrue : vchFalse);
                     if (opcode == OP_CHECKSIGVERIFY)
                     {
                         if (fSuccess)
@@ -969,6 +988,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 case OP_CHECKMULTISIGVERIFY:
                 {
                     // ([sig ...] num_of_signatures [pubkey ...] num_of_pubkeys -- bool)
+
+                    if (sigversion >= SigVersion::WITNESS_V1)
+                        return set_error(serror, SCRIPT_ERR_DISABLED_OPCODE);
 
                     int i = 1;
                     if ((int)stack.size() < i)
