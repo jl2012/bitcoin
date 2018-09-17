@@ -927,11 +927,16 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 {
                     // (sig n pubkey -- n+bool)
                     // A combo opcode equivalent to `<sig> <n> OP_SWAP <pubkey> OP_CHECKSIG OP_ADD`
+                    uint32_t weight = 1;
                     if (opcode == OP_CHECKSIGADD) {
                         if (sigversion < SigVersion::WITNESS_V1)
                             return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
                         if (stack.size() < 3)
                             return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        if (stacktop(-1).size() == 34) {
+                            weight = stacktop(-1).back() + 2; // range of weight: 2 to 257
+                            stacktop(-1).pop_back();
+                        }
                         swap(stacktop(-3), stacktop(-2));
                     }
                     // (sig pubkey -- bool)
@@ -967,7 +972,8 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     if (opcode == OP_CHECKSIGADD) {
                         if (fSuccess) {
                             CScriptNum bn(stacktop(-1), fRequireMinimal);
-                            bn += bnOne;
+                            CScriptNum bn_weight(weight);
+                            bn += bn_weight;
                             popstack(stack);
                             stack.push_back(bn.getvch());
                         }
