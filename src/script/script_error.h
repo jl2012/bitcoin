@@ -70,6 +70,7 @@ typedef enum ScriptError_t
 
     /* Schnorr signature */
     SCRIPT_ERR_SIG_SIZE,
+    SCRIPT_ERR_WEIGHT_SIGOP_RATIO,
 
     SCRIPT_ERR_ERROR_COUNT
 } ScriptError;

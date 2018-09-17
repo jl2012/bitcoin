@@ -9,6 +9,7 @@
 #include <crypto/common.h>
 #include <prevector.h>
 #include <serialize.h>
+#include <consensus/consensus.h>
 
 #include <assert.h>
 #include <climits>
@@ -38,6 +39,11 @@ static const int MAX_STACK_SIZE = 1000;
 // otherwise as UNIX timestamp.
 static const unsigned int LOCKTIME_THRESHOLD = 500000000; // Tue Nov  5 00:53:20 1985 UTC
 
+// Minimum witness space occupied by each successful Schnorr CHECKSIG operation
+static const unsigned int MIN_WEIGHT_PER_SIGOP = MAX_BLOCK_WEIGHT / MAX_BLOCK_SIGOPS_COST;
+
+// Minimum weight of a txin: prevout (36), nSequence (4), scriptSig (1)
+static const unsigned int MIN_TXIN_WEIGHT = 41 * WITNESS_SCALE_FACTOR;
 template <typename T>
 std::vector<unsigned char> ToByteVector(const T& in)
 {

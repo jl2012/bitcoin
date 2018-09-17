@@ -308,6 +308,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
     if (script.size() > MAX_SCRIPT_SIZE)
         return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
     int nOpCount = 0;
+    uint32_t success_checksig = 0;
     bool fRequireMinimal = (flags & SCRIPT_VERIFY_MINIMALDATA) != 0;
 
     try
@@ -946,7 +947,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     }
                     bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
 
-                    if (!fSuccess && (flags & SCRIPT_VERIFY_NULLFAIL) && vchSig.size())
+                    if (fSuccess)
+                        success_checksig++;
+                    else if (((flags & SCRIPT_VERIFY_NULLFAIL) || sigversion == SigVersion::WITNESS_V1) && vchSig.size())
                         return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
 
                     popstack(stack);
@@ -1088,6 +1091,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
 
     if (!vfExec.empty())
         return set_error(serror, SCRIPT_ERR_UNBALANCED_CONDITIONAL);
+
+    if (sigversion == SigVersion::WITNESS_V1 && !checker.CheckWeightSigopRatio(success_checksig))
+        return set_error(serror, SCRIPT_ERR_WEIGHT_SIGOP_RATIO);
 
     return set_success(serror);
 }
@@ -1514,6 +1520,12 @@ bool GenericTransactionSignatureChecker<T>::CheckSequence(const CScriptNum& nSeq
         return false;
 
     return true;
+}
+
+template <class T>
+bool GenericTransactionSignatureChecker<T>::CheckWeightSigopRatio(const uint32_t& success_checksig) const
+{
+    return (success_checksig * MIN_WEIGHT_PER_SIGOP) <= (::GetSerializeSize(txTo->vin[nIn].scriptWitness.stack, SER_NETWORK, PROTOCOL_VERSION) + MIN_TXIN_WEIGHT);
 }
 
 // explicit instantiation
