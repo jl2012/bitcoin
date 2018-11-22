@@ -24,6 +24,7 @@ public:
     CSHA256(const uint32_t* init); // Initilize with precomputed midstate for messages with 64-byte constant header.
     CSHA256& Write(const unsigned char* data, size_t len);
     void Finalize(unsigned char hash[OUTPUT_SIZE]);
+    void Finalize128(unsigned char hash[OUTPUT_SIZE]);
     void GetState(unsigned char hash[OUTPUT_SIZE]); // Get the state after the latest compression round. Buffer ignored.
     CSHA256& Reset();
 };

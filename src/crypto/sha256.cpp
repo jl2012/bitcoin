@@ -412,10 +412,90 @@ void TransformD64(unsigned char* out, const unsigned char* in)
     WriteBE32(out + 28, h + 0x5be0cd19ul);
 }
 
+void Transform128Final(uint32_t* s, unsigned char* out)
+{
+    uint32_t a = s[0], b = s[1], c = s[2], d = s[3], e = s[4], f = s[5], g = s[6], h = s[7];
+
+    Round(a, b, c, d, e, f, g, h, 0xc28a2f98);
+    Round(h, a, b, c, d, e, f, g, 0x71374491);
+    Round(g, h, a, b, c, d, e, f, 0xb5c0fbcf);
+    Round(f, g, h, a, b, c, d, e, 0xe9b5dba5);
+    Round(e, f, g, h, a, b, c, d, 0x3956c25b);
+    Round(d, e, f, g, h, a, b, c, 0x59f111f1);
+    Round(c, d, e, f, g, h, a, b, 0x923f82a4);
+    Round(b, c, d, e, f, g, h, a, 0xab1c5ed5);
+    Round(a, b, c, d, e, f, g, h, 0xd807aa98);
+    Round(h, a, b, c, d, e, f, g, 0x12835b01);
+    Round(g, h, a, b, c, d, e, f, 0x243185be);
+    Round(f, g, h, a, b, c, d, e, 0x550c7dc3);
+    Round(e, f, g, h, a, b, c, d, 0x72be5d74);
+    Round(d, e, f, g, h, a, b, c, 0x80deb1fe);
+    Round(c, d, e, f, g, h, a, b, 0x9bdc06a7);
+    Round(b, c, d, e, f, g, h, a, 0xc19bf574);
+    Round(a, b, c, d, e, f, g, h, 0x649b69c1);
+    Round(h, a, b, c, d, e, f, g, 0xf23e4787);
+    Round(g, h, a, b, c, d, e, f, 0x0fe1edc6);
+    Round(f, g, h, a, b, c, d, e, 0x240ca2dc);
+    Round(e, f, g, h, a, b, c, d, 0x4fe9346f);
+    Round(d, e, f, g, h, a, b, c, 0x4b1e84aa);
+    Round(c, d, e, f, g, h, a, b, 0x61b9431e);
+    Round(b, c, d, e, f, g, h, a, 0x36f9b39a);
+    Round(a, b, c, d, e, f, g, h, 0xfa465156);
+    Round(h, a, b, c, d, e, f, g, 0xb85a8e77);
+    Round(g, h, a, b, c, d, e, f, 0xb01d681d);
+    Round(f, g, h, a, b, c, d, e, 0x5e59c7ea);
+    Round(e, f, g, h, a, b, c, d, 0x2faa3291);
+    Round(d, e, f, g, h, a, b, c, 0x07e2a6fb);
+    Round(c, d, e, f, g, h, a, b, 0x1f515a8e);
+    Round(b, c, d, e, f, g, h, a, 0x6f915f0a);
+    Round(a, b, c, d, e, f, g, h, 0x5fb4221d);
+    Round(h, a, b, c, d, e, f, g, 0x612cc90a);
+    Round(g, h, a, b, c, d, e, f, 0x35c3e883);
+    Round(f, g, h, a, b, c, d, e, 0xa925d9d4);
+    Round(e, f, g, h, a, b, c, d, 0x8b82d1b9);
+    Round(d, e, f, g, h, a, b, c, 0x92848088);
+    Round(c, d, e, f, g, h, a, b, 0x9a5b7704);
+    Round(b, c, d, e, f, g, h, a, 0x034ba272);
+    Round(a, b, c, d, e, f, g, h, 0x9f594686);
+    Round(h, a, b, c, d, e, f, g, 0x6f480592);
+    Round(g, h, a, b, c, d, e, f, 0xe49bee62);
+    Round(f, g, h, a, b, c, d, e, 0xc1cf12eb);
+    Round(e, f, g, h, a, b, c, d, 0x3ef55e11);
+    Round(d, e, f, g, h, a, b, c, 0x1f0f59a3);
+    Round(c, d, e, f, g, h, a, b, 0x327a0634);
+    Round(b, c, d, e, f, g, h, a, 0xbfa4d9bc);
+    Round(a, b, c, d, e, f, g, h, 0x770df572);
+    Round(h, a, b, c, d, e, f, g, 0x9b9fbf40);
+    Round(g, h, a, b, c, d, e, f, 0xc21be9e9);
+    Round(f, g, h, a, b, c, d, e, 0xf5001d69);
+    Round(e, f, g, h, a, b, c, d, 0x840ec6da);
+    Round(d, e, f, g, h, a, b, c, 0x8a337f83);
+    Round(c, d, e, f, g, h, a, b, 0xb737625a);
+    Round(b, c, d, e, f, g, h, a, 0xe9b9ecd0);
+    Round(a, b, c, d, e, f, g, h, 0xfe5d6d40);
+    Round(h, a, b, c, d, e, f, g, 0xa52dab8d);
+    Round(g, h, a, b, c, d, e, f, 0xee944592);
+    Round(f, g, h, a, b, c, d, e, 0x5f2d004a);
+    Round(e, f, g, h, a, b, c, d, 0x3bc8cb2e);
+    Round(d, e, f, g, h, a, b, c, 0x36d964a4);
+    Round(c, d, e, f, g, h, a, b, 0x5eb10caf);
+    Round(b, c, d, e, f, g, h, a, 0x6289d971);
+
+    WriteBE32(out + 0, a + s[0]);
+    WriteBE32(out + 4, b + s[1]);
+    WriteBE32(out + 8, c + s[2]);
+    WriteBE32(out + 12, d + s[3]);
+    WriteBE32(out + 16, e + s[4]);
+    WriteBE32(out + 20, f + s[5]);
+    WriteBE32(out + 24, g + s[6]);
+    WriteBE32(out + 28, h + s[7]);
+}
+
 } // namespace sha256
 
 typedef void (*TransformType)(uint32_t*, const unsigned char*, size_t);
 typedef void (*TransformD64Type)(unsigned char*, const unsigned char*);
+typedef void (*TransformS128FType)(uint32_t*, unsigned char*);
 
 template<TransformType tr>
 void TransformD64Wrapper(unsigned char* out, const unsigned char* in)
@@ -461,6 +541,7 @@ TransformD64Type TransformD64 = sha256::TransformD64;
 TransformD64Type TransformD64_2way = nullptr;
 TransformD64Type TransformD64_4way = nullptr;
 TransformD64Type TransformD64_8way = nullptr;
+TransformS128FType Transform128Final = sha256::Transform128Final;
 
 bool SelfTest() {
     // Input state (equal to the initial SHA256 state)
@@ -704,6 +785,11 @@ void CSHA256::GetState(unsigned char hash[OUTPUT_SIZE])
     WriteBE32(hash + 20, s[5]);
     WriteBE32(hash + 24, s[6]);
     WriteBE32(hash + 28, s[7]);
+}
+
+void CSHA256::Finalize128(unsigned char hash[OUTPUT_SIZE])
+{
+    Transform128Final(s, hash);
 }
 
 CSHA256& CSHA256::Reset()
