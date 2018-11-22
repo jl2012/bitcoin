@@ -44,6 +44,12 @@ static const unsigned int LOCKTIME_THRESHOLD = 500000000; // Tue Nov  5 00:53:20
 // SEQUENCE_FINAL).
 static const uint32_t LOCKTIME_MAX = 0xFFFFFFFFU;
 
+// The SHA256 midstates for messages prepended with a fixed 64-byte header
+// Header for taproot inner nodes: SHA256("TapBranch") x 2 = 1941a1f2e56eb95fa2a9f194be5c01f7216f33ed82b091463490d05bf516a0151941a1f2e56eb95fa2a9f194be5c01f7216f33ed82b091463490d05bf516a015
+static const uint32_t TAPBRANCH_MIDSTATE[8] = {0x23a865a9ul, 0xb8a40da7ul, 0x977c1e04ul, 0xc49e246ful, 0xb5be1376ul, 0x9d24c9b7ul, 0xb583b5d4ul, 0xa8d226d2ul};
+// Header for taproot leaf nodes: SHA256("TapLeaf") x 2 = aeea8fdc4208983105734b58081d1e2638d35f1cb54008d4d357ca03be78e9eeaeea8fdc4208983105734b58081d1e2638d35f1cb54008d4d357ca03be78e9ee
+static const uint32_t TAPLEAF_MIDSTATE[8] = {0x9ce0e4e6ul, 0x7c116c39ul, 0x38b3caf2ul, 0xc30f5089ul, 0xd3f3936cul, 0x47636e60ul, 0x7db33eeaul, 0xddc6f0c9ul};
+
 template <typename T>
 std::vector<unsigned char> ToByteVector(const T& in)
 {

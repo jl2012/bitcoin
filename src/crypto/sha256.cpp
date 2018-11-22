@@ -645,6 +645,19 @@ CSHA256::CSHA256() : bytes(0)
     sha256::Initialize(s);
 }
 
+CSHA256::CSHA256(const uint32_t* init)
+{
+    s[0] = *(init);
+    s[1] = *(init+1);
+    s[2] = *(init+2);
+    s[3] = *(init+3);
+    s[4] = *(init+4);
+    s[5] = *(init+5);
+    s[6] = *(init+6);
+    s[7] = *(init+7);
+    bytes = 64;
+}
+
 CSHA256& CSHA256::Write(const unsigned char* data, size_t len)
 {
     const unsigned char* end = data + len;
@@ -678,6 +691,11 @@ void CSHA256::Finalize(unsigned char hash[OUTPUT_SIZE])
     WriteBE64(sizedesc, bytes << 3);
     Write(pad, 1 + ((119 - (bytes % 64)) % 64));
     Write(sizedesc, 8);
+    GetState(hash);
+}
+
+void CSHA256::GetState(unsigned char hash[OUTPUT_SIZE])
+{
     WriteBE32(hash, s[0]);
     WriteBE32(hash + 4, s[1]);
     WriteBE32(hash + 8, s[2]);
