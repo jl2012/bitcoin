@@ -175,6 +175,9 @@ void TestSHA256MidstateInit(const unsigned char* str, const size_t len, const ui
     CSHA256().Write(header.begin(), 32).Write(header.begin(), 32).Write(randomhash1.begin(), 32).Write(randomhash2.begin(), 32).Finalize(slow_hash.begin());
     CSHA256(init).Write(randomhash1.begin(), 32).Write(randomhash2.begin(), 32).Finalize(fast_hash.begin());
     BOOST_CHECK_EQUAL(slow_hash, fast_hash);
+    // Further optimization for 128-byte message
+    CSHA256(init).Write(randomhash1.begin(), 32).Write(randomhash2.begin(), 32).Finalize128(fast_hash.begin());
+    BOOST_CHECK_EQUAL(slow_hash, fast_hash);
     // Test with random size message after the fixed 64-byte header
     CSHA256().Write(header.begin(), 32).Write(header.begin(), 32).Write(rand_chars.data(), rand_size).Finalize(slow_hash.begin());
     CSHA256(init).Write(rand_chars.data(), rand_size).Finalize(fast_hash.begin());

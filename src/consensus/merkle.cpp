@@ -89,9 +89,9 @@ uint256 ComputeTaprootMerkleRootFromBranch(const uint256& leaf, const unsigned c
     uint256 hash = leaf;
     for (const unsigned char* node=branch; node!=branch+len; node+=32) {
         if (memcmp(node, hash.begin(), 32) < 0)
-            CSHA256(TAPBRANCH_MIDSTATE).Write(node, 32).Write(hash.begin(), 32).Finalize(hash.begin());
+            CSHA256(TAPBRANCH_MIDSTATE).Write(node, 32).Write(hash.begin(), 32).Finalize128(hash.begin());
         else
-            CSHA256(TAPBRANCH_MIDSTATE).Write(hash.begin(), 32).Write(node, 32).Finalize(hash.begin());
+            CSHA256(TAPBRANCH_MIDSTATE).Write(hash.begin(), 32).Write(node, 32).Finalize128(hash.begin());
     }
     return hash;
 }
