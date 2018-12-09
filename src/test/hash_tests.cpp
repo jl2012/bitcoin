@@ -148,4 +148,42 @@ BOOST_AUTO_TEST_CASE(siphash)
     }
 }
 
+void TestSHA256MidstateInit(const unsigned char* str, const size_t len, const uint32_t* init)
+{
+    uint256 header, midstate, slow_hash, fast_hash;
+    CSHA256().Write(str, len).Finalize(header.begin());
+    CSHA256().Write(header.begin(), 32).Write(header.begin(), 32).GetState(midstate.begin());
+    // The calculated midstate should match the given constants
+    for (int i = 0; i < 8; ++i)
+        BOOST_CHECK_EQUAL(ReadBE32(midstate.begin() + i * 4), init[i]);
+
+    uint256 randomhash1 = GetRandHash();
+    uint256 randomhash2 = GetRandHash();
+    uint32_t rand_size = GetRandInt(10000);
+    std::vector<unsigned char> rand_chars(rand_size);
+    GetRandBytes(rand_chars.data(), rand_size);
+
+    // Test with empty message after the fixed 64-byte header
+    CSHA256().Write(header.begin(), 32).Write(header.begin(), 32).Finalize(slow_hash.begin());
+    CSHA256(init).Finalize(fast_hash.begin());
+    BOOST_CHECK_EQUAL(slow_hash, fast_hash);
+    // Test with 32-byte message after the fixed 64-byte header
+    CSHA256().Write(header.begin(), 32).Write(header.begin(), 32).Write(randomhash1.begin(), 32).Finalize(slow_hash.begin());
+    CSHA256(init).Write(randomhash1.begin(), 32).Finalize(fast_hash.begin());
+    BOOST_CHECK_EQUAL(slow_hash, fast_hash);
+    // Test with 64-byte message after the fixed 64-byte header
+    CSHA256().Write(header.begin(), 32).Write(header.begin(), 32).Write(randomhash1.begin(), 32).Write(randomhash2.begin(), 32).Finalize(slow_hash.begin());
+    CSHA256(init).Write(randomhash1.begin(), 32).Write(randomhash2.begin(), 32).Finalize(fast_hash.begin());
+    BOOST_CHECK_EQUAL(slow_hash, fast_hash);
+    // Test with random size message after the fixed 64-byte header
+    CSHA256().Write(header.begin(), 32).Write(header.begin(), 32).Write(rand_chars.data(), rand_size).Finalize(slow_hash.begin());
+    CSHA256(init).Write(rand_chars.data(), rand_size).Finalize(fast_hash.begin());
+    BOOST_CHECK_EQUAL(slow_hash, fast_hash);
+}
+
+BOOST_AUTO_TEST_CASE(sha256_midstate_init)
+{
+    TestSHA256MidstateInit((unsigned char*)"TapBranch", 9, TAPBRANCH_MIDSTATE);
+    TestSHA256MidstateInit((unsigned char*)"TapLeaf", 7, TAPLEAF_MIDSTATE);
+}
 BOOST_AUTO_TEST_SUITE_END()
