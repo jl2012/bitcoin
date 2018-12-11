@@ -11,6 +11,7 @@
 #include <pubkey.h>
 #include <script/script.h>
 #include <uint256.h>
+#include <consensus/merkle.h>
 
 typedef std::vector<unsigned char> valtype;
 
@@ -1674,8 +1675,10 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
 {
     std::vector<std::vector<unsigned char> > stack;
     CScript scriptPubKey;
+    SigVersion sigversion;
 
     if (witversion == 0) {
+        sigversion = SigVersion::WITNESS_V0;
         if (program.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
             // Version 0 segregated witness program: SHA256(CScript) inside the program, CScript + inputs in witness
             if (witness.stack.size() == 0) {
@@ -1698,6 +1701,49 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         } else {
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
         }
+    } else if ((flags & SCRIPT_VERIFY_METAS) != 0 && witversion == 1 && program.size() == WITNESS_V1_METAS_SIZE && program[0] <= 1) {
+        //Extract the public key (Q) from witness program
+        CPubKey pubkeyq(program, true);
+        if (witness.stack.size() == 0)
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
+        else if (witness.stack.size() == 1) {
+            sigversion = SigVersion::METAS_KEYPATH;
+            scriptPubKey << ToByteVector(pubkeyq) << OP_CHECKDLS;
+            stack = witness.stack;
+        }
+        else {
+            // Basic checking for control block
+            const valtype& cb = witness.stack.back();
+            if (cb.size() < WITNESS_V1_METAS_SIZE || (cb.size() & 0x1f) != 1 || cb.size() > 1057)
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+
+            // Extract pubkey (P) in compressed form from control block
+            const CPubKey pubkeyp(cb, true);
+
+            // Extract script version (V) from control block
+            const unsigned char script_version = cb[0] >> 1;
+
+            // The second to last witness item is the script (S)
+            scriptPubKey = CScript(witness.stack[witness.stack.size()-2].begin(), witness.stack[witness.stack.size()-2].end());
+
+            // Compute SHA256(SHA256("TapLeaf") || SHA256("TapLeaf") || P || V || S)) and merkle root (K)
+            uint256 merkle_root;
+            CSHA256(TAPLEAF_MIDSTATE).Write(&pubkeyp[0], WITNESS_V1_METAS_SIZE).Write(&script_version, 1).Write(&scriptPubKey[0], scriptPubKey.size()).Finalize(merkle_root.begin());
+            merkle_root = ComputeTaprootMerkleRootFromBranch(merkle_root, &cb[WITNESS_V1_METAS_SIZE], cb.size() - WITNESS_V1_METAS_SIZE);
+
+            // Derive the taproot pubkey (P + KG) and compare with the witness program (Q)
+            if (!pubkeyp.VerifyTaprootKey(merkle_root, pubkeyq))
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+
+            // It is now safe to check the script version (V = cb[0] >> 1). Execute the script if V is 0.
+            if (script_version != 0) {
+                if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM)
+                    return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
+                return set_success(serror);
+            }
+            sigversion = SigVersion::METAS_SCRIPTPATH_V0;
+            stack = std::vector<std::vector<unsigned char> >(witness.stack.begin(), witness.stack.end() - 2);
+        }
     } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) {
         return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
     } else {
@@ -1711,7 +1757,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
     }
 
-    if (!EvalScript(stack, scriptPubKey, flags, checker, SigVersion::WITNESS_V0, serror)) {
+    if (!EvalScript(stack, scriptPubKey, flags, checker, sigversion, serror)) {
         return false;
     }
 

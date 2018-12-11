@@ -188,4 +188,74 @@ BOOST_AUTO_TEST_CASE(key_signature_tests)
     BOOST_CHECK(found_small);
 }
 
+// TODO: move to a seperate file?
+BOOST_AUTO_TEST_CASE(metas)
+{
+    std::vector<unsigned char> vch_pubkey(33);
+    static const uint256 zero(uint256S("0000000000000000000000000000000000000000000000000000000000000000"));
+    static const uint256 one(uint256S("0100000000000000000000000000000000000000000000000000000000000000"));
+    static const uint256 two(uint256S("0200000000000000000000000000000000000000000000000000000000000000"));
+    static const uint256 order_minus_one(uint256S("404136d08c5ed2bf3ba048afe6dcaebafeffffffffffffffffffffffffffffff"));
+    static const uint256 order(uint256S("414136d08c5ed2bf3ba048afe6dcaebafeffffffffffffffffffffffffffffff"));
+    static const uint256 order_plus_one(uint256S("424136d08c5ed2bf3ba048afe6dcaebafeffffffffffffffffffffffffffffff"));
+    static const uint256 max(uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"));
+
+    CPubKey pubkey;
+    static const std::vector<unsigned char> expect1g = {2,121,190,102,126,249,220,187,172,85,160,98,149,206,135,11,7,2,155,252,219,45,206,40,217,89,242,129,91,22,248,23,152};
+    static const CPubKey pubkey_expect1g(expect1g);
+    static const std::vector<unsigned char> expect2g = {2,198,4,127,148,65,237,125,109,48,69,64,110,149,192,124,216,92,119,142,75,140,239,60,167,171,172,9,185,92,112,158,229};
+    static const CPubKey pubkey_expect2g(expect2g);
+
+    vch_pubkey = {0,121,190,102,126,249,220,187,172,85,160,98,149,206,135,11,7,2,155,252,219,45,206,40,217,89,242,129,91,22,248,23,152}; // 1G
+    pubkey = CPubKey(vch_pubkey); // Not reading as taproot public key
+    BOOST_CHECK(!pubkey.IsValid());
+    pubkey = CPubKey(vch_pubkey, true);
+    BOOST_CHECK(pubkey.IsValid());
+    BOOST_CHECK(!pubkey.TweakAdd(order_minus_one.begin())); // P = 1G; K = n-1; Q = infinity
+    pubkey = CPubKey(vch_pubkey, true);
+    BOOST_CHECK(!pubkey.TweakAdd(order.begin())); // K overflow
+    pubkey = CPubKey(vch_pubkey, true);
+    BOOST_CHECK(!pubkey.TweakAdd(order_plus_one.begin())); // K overflow
+    pubkey = CPubKey(vch_pubkey, true);
+    BOOST_CHECK(!pubkey.TweakAdd(max.begin())); // K overflow
+
+    // P = 1G; K = 1; Q = 2G
+    vch_pubkey = {0,121,190,102,126,249,220,187,172,85,160,98,149,206,135,11,7,2,155,252,219,45,206,40,217,89,242,129,91,22,248,23,152}; // 1G
+    pubkey = CPubKey(vch_pubkey, true);
+    BOOST_CHECK(pubkey.VerifyTaprootKey(one, pubkey_expect2g));
+
+    // P = (n-1)G; K = 1; Q = infinity
+    vch_pubkey = {1,121,190,102,126,249,220,187,172,85,160,98,149,206,135,11,7,2,155,252,219,45,206,40,217,89,242,129,91,22,248,23,152}; // (n-1)G
+    pubkey = CPubKey(vch_pubkey, true);
+    BOOST_CHECK(!pubkey.TweakAdd(one.begin()));
+
+    // P = 2G, K = n-1, Q = 1G
+    vch_pubkey = {2,198,4,127,148,65,237,125,109,48,69,64,110,149,192,124,216,92,119,142,75,140,239,60,167,171,172,9,185,92,112,158,229}; // 2G
+    pubkey = CPubKey(vch_pubkey, true);
+    BOOST_CHECK(pubkey.VerifyTaprootKey(order_minus_one, pubkey_expect1g));
+
+    // P = (n-1)G; K = 2; Q = 1G
+    vch_pubkey = {1,121,190,102,126,249,220,187,172,85,160,98,149,206,135,11,7,2,155,252,219,45,206,40,217,89,242,129,91,22,248,23,152}; // (n-1)G
+    pubkey = CPubKey(vch_pubkey, true);
+    BOOST_CHECK(pubkey.VerifyTaprootKey(two, pubkey_expect1g));
+
+    // P = 1G; K = 0; Q = 1G
+    vch_pubkey = {0,121,190,102,126,249,220,187,172,85,160,98,149,206,135,11,7,2,155,252,219,45,206,40,217,89,242,129,91,22,248,23,152}; // 1G
+    pubkey = CPubKey(vch_pubkey, true);
+    BOOST_CHECK(pubkey.VerifyTaprootKey(zero, pubkey_expect1g));
+
+    // P = 1G; K = 1; Q = 2G
+    vch_pubkey = {88,121,190,102,126,249,220,187,172,85,160,98,149,206,135,11,7,2,155,252,219,45,206,40,217,89,242,129,91,22,248,23,152}; // 1G
+    pubkey = CPubKey(vch_pubkey, true);
+    BOOST_CHECK(pubkey.VerifyTaprootKey(one, pubkey_expect2g));
+
+    vch_pubkey.push_back(0);
+    pubkey = CPubKey(vch_pubkey, true); // Only the first 33 bytes are read
+    BOOST_CHECK(pubkey.VerifyTaprootKey(one, pubkey_expect2g));
+
+    vch_pubkey.resize(32);
+    pubkey = CPubKey(vch_pubkey, true); // Smaller than 33 bytes
+    BOOST_CHECK(!pubkey.IsValid());
+}
+
 BOOST_AUTO_TEST_SUITE_END()

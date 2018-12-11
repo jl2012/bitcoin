@@ -125,6 +125,9 @@ enum
     // Making OP_CODESEPARATOR and FindAndDelete fail any non-segwit scripts
     //
     SCRIPT_VERIFY_CONST_SCRIPTCODE = (1U << 16),
+
+    // Support Metas valiation
+    SCRIPT_VERIFY_METAS = (1U << 17),
 };
 
 struct PrecomputedTransactionData
@@ -157,6 +160,7 @@ bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned i
 /** Signature hash sizes */
 static constexpr size_t WITNESS_V0_SCRIPTHASH_SIZE = 32;
 static constexpr size_t WITNESS_V0_KEYHASH_SIZE = 20;
+static constexpr size_t WITNESS_V1_METAS_SIZE = 33;
 
 template <class T>
 uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CTxOut& prev_txout, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr, const MetasData* metas_data = nullptr);

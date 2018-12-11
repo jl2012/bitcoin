@@ -225,24 +225,37 @@ bool CPubKey::Decompress() {
 }
 
 bool CPubKey::Derive(CPubKey& pubkeyChild, ChainCode &ccChild, unsigned int nChild, const ChainCode& cc) const {
-    assert(IsValid());
     assert((nChild >> 31) == 0);
-    assert(size() == COMPRESSED_PUBLIC_KEY_SIZE);
     unsigned char out[64];
     BIP32Hash(cc, nChild, *begin(), begin()+1, out);
     memcpy(ccChild.begin(), out+32, 32);
+    pubkeyChild = *this;
+    return pubkeyChild.TweakAdd(out);
+}
+
+bool CPubKey::TweakAdd(const unsigned char* hash) {
+    assert(IsValid());
+    assert(size() == COMPRESSED_PUBLIC_KEY_SIZE);
     secp256k1_pubkey pubkey;
     if (!secp256k1_ec_pubkey_parse(secp256k1_context_verify, &pubkey, vch, size())) {
         return false;
     }
-    if (!secp256k1_ec_pubkey_tweak_add(secp256k1_context_verify, &pubkey, out)) {
+    if (!secp256k1_ec_pubkey_tweak_add(secp256k1_context_verify, &pubkey, hash)) {
         return false;
     }
     unsigned char pub[COMPRESSED_PUBLIC_KEY_SIZE];
     size_t publen = COMPRESSED_PUBLIC_KEY_SIZE;
     secp256k1_ec_pubkey_serialize(secp256k1_context_verify, pub, &publen, &pubkey, SECP256K1_EC_COMPRESSED);
-    pubkeyChild.Set(pub, pub + publen);
+    Set(pub, pub + publen);
     return true;
+}
+
+bool CPubKey::VerifyTaprootKey(const uint256 &hash, const CPubKey& pubkeyq) const {
+    // TODO: replace with batch-verifiable libsecp256k1 function?
+    CPubKey pubkey = *this;
+    if (!pubkey.TweakAdd(hash.begin()))
+        return false;
+    return (pubkey == pubkeyq);
 }
 
 void CExtPubKey::Encode(unsigned char code[BIP32_EXTKEY_SIZE]) const {

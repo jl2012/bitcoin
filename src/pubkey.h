@@ -92,6 +92,14 @@ public:
             Invalidate();
     }
 
+    //! Initialize a compressed public key with the lowest bit of first byte indicating the oddness for Y.
+    template <typename T>
+    void SetTaprootKey(const T pbegin)
+    {
+        memcpy(vch, (unsigned char*)&pbegin[0], COMPRESSED_PUBLIC_KEY_SIZE);
+        vch[0] = (vch[0] & 1) | 2;
+    }
+
     //! Construct a public key using begin/end iterators to byte data.
     template <typename T>
     CPubKey(const T pbegin, const T pend)
@@ -100,9 +108,12 @@ public:
     }
 
     //! Construct a public key from a byte vector.
-    explicit CPubKey(const std::vector<unsigned char>& _vch)
+    explicit CPubKey(const std::vector<unsigned char>& _vch, const bool taproot = false)
     {
-        Set(_vch.begin(), _vch.end());
+        if (taproot && _vch.size() >= COMPRESSED_PUBLIC_KEY_SIZE)
+            SetTaprootKey(_vch);
+        else
+            Set(_vch.begin(), _vch.end());
     }
 
     //! Simple read-only vector-like interface to the pubkey data.
@@ -201,6 +212,9 @@ public:
 
     //! Derive BIP32 child pubkey.
     bool Derive(CPubKey& pubkeyChild, ChainCode &ccChild, unsigned int nChild, const ChainCode& cc) const;
+
+    bool TweakAdd(const unsigned char* hash);
+    bool VerifyTaprootKey(const uint256 &hash, const CPubKey& pubkeyq) const;
 };
 
 struct CExtPubKey {
