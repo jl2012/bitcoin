@@ -71,6 +71,7 @@ typedef enum ScriptError_t
     /* Metas */
     SCRIPT_ERR_BAD_OP_MASKEDPUSH,
     SCRIPT_ERR_CHECKDLSVERIFY,
+    SCRIPT_ERR_SIG_DLS_SIZE,
 
     SCRIPT_ERR_ERROR_COUNT
 } ScriptError;

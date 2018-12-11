@@ -197,10 +197,21 @@ bool static IsDefinedHashtypeSignature(const valtype &vchSig) {
     return true;
 }
 
-bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror) {
+bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, const SigVersion& sigversion, ScriptError* serror) {
     // Empty signature. Not strictly DER encoded, but allowed to provide a
     // compact way to provide an invalid signature for use with CHECK(MULTI)SIG
     if (vchSig.size() == 0) {
+        return true;
+    }
+    if (sigversion == SigVersion::METAS_KEYPATH || sigversion == SigVersion::METAS_SCRIPTPATH_V0) {
+        if (vchSig.size() < 64 || vchSig.size() > 65)
+            return set_error(serror, SCRIPT_ERR_SIG_DLS_SIZE);
+        if (vchSig.size() == 65) {
+            if (vchSig.back() == SH2_ALL || (vchSig.back() & SH2_OUTPUT_MASK) == SH2_OUTPUT_MASK)
+                return set_error(serror, SCRIPT_ERR_SIG_HASHTYPE);
+            if (sigversion == SigVersion::METAS_KEYPATH && (vchSig.back() & SH2_INPUT_MASK) == SH2_INPUT_MASKEDSCRIPTONLY)
+                return set_error(serror, SCRIPT_ERR_SIG_HASHTYPE);
+        }
         return true;
     }
     if ((flags & (SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC)) != 0 && !IsValidSignatureEncoding(vchSig)) {
@@ -1007,7 +1018,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                             return set_error(serror, SCRIPT_ERR_SIG_FINDANDDELETE);
                     }
 
-                    if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
+                    if (!CheckSignatureEncoding(vchSig, flags, sigversion, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
                         //serror is set
                         return false;
                     }
@@ -1083,7 +1094,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         // Note how this makes the exact order of pubkey/signature evaluation
                         // distinguishable by CHECKMULTISIG NOT if the STRICTENC flag is set.
                         // See the script_(in)valid tests for details.
-                        if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
+                        if (!CheckSignatureEncoding(vchSig, flags, sigversion, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
                             // serror is set
                             return false;
                         }
@@ -1161,7 +1172,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     valtype& vchSig    = stacktop(-2);
                     valtype& vchPubKey = stacktop(-1);
 
-                    if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
+                    if (!CheckSignatureEncoding(vchSig, flags, sigversion, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
                         //serror is set
                         return false;
                     }
@@ -1437,6 +1448,7 @@ bool GenericTransactionSignatureChecker<T>::VerifySignature(const std::vector<un
 template <class T>
 bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned char>& vchSigIn, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
 {
+    int nHashType = 0;
     CPubKey pubkey(vchPubKey);
     if (!pubkey.IsValid())
         return false;
@@ -1445,8 +1457,12 @@ bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned 
     std::vector<unsigned char> vchSig(vchSigIn);
     if (vchSig.empty())
         return false;
-    int nHashType = vchSig.back();
-    vchSig.pop_back();
+    if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0 || vchSig.size() == 65) {
+        nHashType = vchSig.back();
+        vchSig.pop_back();
+    }
+    if ((sigversion == SigVersion::METAS_KEYPATH || sigversion == SigVersion::METAS_SCRIPTPATH_V0) && (nHashType & SH2_OUTPUT_MASK) == SH2_OUTPUT_SINGLE && nIn >= txTo->vout.size())
+        return false;
 
     uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, this->txdata);
 

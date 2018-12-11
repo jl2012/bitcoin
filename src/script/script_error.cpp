@@ -97,6 +97,8 @@ const char* ScriptErrorString(const ScriptError serror)
             return "Invalid OP_MASKEDPUSH";
         case SCRIPT_ERR_CHECKDLSVERIFY:
             return "Script failed an OP_CHECKDLSVERIFY operation";
+        case SCRIPT_ERR_SIG_DLS_SIZE:
+            return "Invalid discrete logarithm signature size";
         case SCRIPT_ERR_UNKNOWN_ERROR:
         case SCRIPT_ERR_ERROR_COUNT:
         default: break;

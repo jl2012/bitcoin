@@ -25,6 +25,16 @@ enum
     SIGHASH_NONE = 2,
     SIGHASH_SINGLE = 3,
     SIGHASH_ANYONECANPAY = 0x80,
+    SH2_ALL = 0,
+    SH2_INPUT_ALL = 0,
+    SH2_INPUT_SINGLE = 1,
+    SH2_INPUT_KEYANDSCRIPTONLY = 2,
+    SH2_INPUT_MASKEDSCRIPTONLY = 3,
+    SH2_INPUT_MASK = 3,
+    SH2_OUTPUT_ALL = 0,
+    SH2_OUTPUT_SINGLE = 4,
+    SH2_OUTPUT_NONE = 8,
+    SH2_OUTPUT_MASK = 0x0c,
 };
 
 /** Script verification flags.
@@ -117,8 +127,6 @@ enum
     SCRIPT_VERIFY_CONST_SCRIPTCODE = (1U << 16),
 };
 
-bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);
-
 struct PrecomputedTransactionData
 {
     uint256 hashPrevouts, hashSequence, hashOutputs;
@@ -141,6 +149,8 @@ enum class SigVersion
     METAS_KEYPATH = 2,
     METAS_SCRIPTPATH_V0 = 3,
 };
+
+bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, const SigVersion& sigversion, ScriptError* serror);
 
 /** Signature hash sizes */
 static constexpr size_t WITNESS_V0_SCRIPTHASH_SIZE = 32;
