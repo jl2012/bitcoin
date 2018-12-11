@@ -1376,7 +1376,7 @@ template PrecomputedTransactionData::PrecomputedTransactionData(const CTransacti
 template PrecomputedTransactionData::PrecomputedTransactionData(const CMutableTransaction& txTo);
 
 template <class T>
-uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache)
+uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CTxOut& prev_txout, SigVersion sigversion, const PrecomputedTransactionData* cache)
 {
     assert(nIn < txTo.vin.size());
 
@@ -1414,7 +1414,7 @@ uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn
         // may already be contain in hashSequence.
         ss << txTo.vin[nIn].prevout;
         ss << scriptCode;
-        ss << amount;
+        ss << prev_txout.nValue;
         ss << txTo.vin[nIn].nSequence;
         // Outputs (none/one/all, depending on flags)
         ss << hashOutputs;
@@ -1470,7 +1470,7 @@ bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned 
     if ((sigversion == SigVersion::METAS_KEYPATH || sigversion == SigVersion::METAS_SCRIPTPATH_V0) && (nHashType & SH2_OUTPUT_MASK) == SH2_OUTPUT_SINGLE && nIn >= txTo->vout.size())
         return false;
 
-    uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, this->txdata);
+    uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, prev_txout, sigversion, this->txdata);
 
     if (!VerifySignature(vchSig, pubkey, sighash))
         return false;

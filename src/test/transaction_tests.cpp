@@ -163,14 +163,14 @@ BOOST_AUTO_TEST_CASE(tx_valid)
                     break;
                 }
 
-                CAmount amount = 0;
+                CTxOut prev_txout(0, mapprevOutScriptPubKeys[tx.vin[i].prevout]);
                 if (mapprevOutValues.count(tx.vin[i].prevout)) {
-                    amount = mapprevOutValues[tx.vin[i].prevout];
+                    prev_txout.nValue = mapprevOutValues[tx.vin[i].prevout];
                 }
                 unsigned int verify_flags = ParseScriptFlags(test[2].get_str());
                 const CScriptWitness *witness = &tx.vin[i].scriptWitness;
-                BOOST_CHECK_MESSAGE(VerifyScript(tx.vin[i].scriptSig, mapprevOutScriptPubKeys[tx.vin[i].prevout],
-                                                 witness, verify_flags, TransactionSignatureChecker(&tx, i, amount, txdata), &err),
+                BOOST_CHECK_MESSAGE(VerifyScript(tx.vin[i].scriptSig, prev_txout.scriptPubKey,
+                                                 witness, verify_flags, TransactionSignatureChecker(&tx, i, prev_txout, txdata), &err),
                                     strTest);
                 BOOST_CHECK_MESSAGE(err == SCRIPT_ERR_OK, ScriptErrorString(err));
             }
@@ -250,13 +250,13 @@ BOOST_AUTO_TEST_CASE(tx_invalid)
                 }
 
                 unsigned int verify_flags = ParseScriptFlags(test[2].get_str());
-                CAmount amount = 0;
+                CTxOut prev_txout(0, mapprevOutScriptPubKeys[tx.vin[i].prevout]);
                 if (mapprevOutValues.count(tx.vin[i].prevout)) {
-                    amount = mapprevOutValues[tx.vin[i].prevout];
+                    prev_txout.nValue = mapprevOutValues[tx.vin[i].prevout];
                 }
                 const CScriptWitness *witness = &tx.vin[i].scriptWitness;
-                fValid = VerifyScript(tx.vin[i].scriptSig, mapprevOutScriptPubKeys[tx.vin[i].prevout],
-                                      witness, verify_flags, TransactionSignatureChecker(&tx, i, amount, txdata), &err);
+                fValid = VerifyScript(tx.vin[i].scriptSig, prev_txout.scriptPubKey,
+                                      witness, verify_flags, TransactionSignatureChecker(&tx, i, prev_txout, txdata), &err);
             }
             BOOST_CHECK_MESSAGE(!fValid, strTest);
             BOOST_CHECK_MESSAGE(err != SCRIPT_ERR_OK, ScriptErrorString(err));
@@ -386,7 +386,7 @@ static void CheckWithFlag(const CTransactionRef& output, const CMutableTransacti
 {
     ScriptError error;
     CTransaction inputi(input);
-    bool ret = VerifyScript(inputi.vin[0].scriptSig, output->vout[0].scriptPubKey, &inputi.vin[0].scriptWitness, flags, TransactionSignatureChecker(&inputi, 0, output->vout[0].nValue), &error);
+    bool ret = VerifyScript(inputi.vin[0].scriptSig, output->vout[0].scriptPubKey, &inputi.vin[0].scriptWitness, flags, TransactionSignatureChecker(&inputi, 0, output->vout[0]), &error);
     assert(ret == success);
 }
 
@@ -451,7 +451,7 @@ BOOST_AUTO_TEST_CASE(test_big_witness_transaction) {
 
     // sign all inputs
     for(uint32_t i = 0; i < mtx.vin.size(); i++) {
-        bool hashSigned = SignSignature(keystore, scriptPubKey, mtx, i, 1000, sigHashes.at(i % sigHashes.size()));
+        bool hashSigned = SignSignature(keystore, CTxOut(1000, scriptPubKey), mtx, i, sigHashes.at(i % sigHashes.size()));
         assert(hashSigned);
     }
 
@@ -499,7 +499,7 @@ SignatureData CombineSignatures(const CMutableTransaction& input1, const CMutabl
     SignatureData sigdata;
     sigdata = DataFromTransaction(input1, 0, tx->vout[0]);
     sigdata.MergeSignatureData(DataFromTransaction(input2, 0, tx->vout[0]));
-    ProduceSignature(DUMMY_SIGNING_PROVIDER, MutableTransactionSignatureCreator(&input1, 0, tx->vout[0].nValue), tx->vout[0].scriptPubKey, sigdata);
+    ProduceSignature(DUMMY_SIGNING_PROVIDER, MutableTransactionSignatureCreator(&input1, 0, tx->vout[0]), tx->vout[0].scriptPubKey, sigdata);
     return sigdata;
 }
 
