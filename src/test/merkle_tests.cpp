@@ -249,4 +249,45 @@ BOOST_AUTO_TEST_CASE(merkle_test)
     }
 }
 
+BOOST_AUTO_TEST_CASE(taproot_merkle_test)
+{
+    static const uint256 hash1(uint256S("0000000000000000000000000000000000000000000000000000000000000001")); // 0100000000000000000000000000000000000000000000000000000000000000
+    static const uint256 hash2(uint256S("0200000000000000000000000000000000000000000000000000000000000000")); // 0000000000000000000000000000000000000000000000000000000000000002
+    static const uint256 hash3(uint256S("9999999999999999999999999999999999999999999999999999999999999999")); // 9999999999999999999999999999999999999999999999999999999999999999
+    static const uint256 hash4(uint256S("e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1")); // e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1
+    static const uint256 expect1(uint256S("10f8ac5a061398eb4e22dc2730bdbb1cf9c4440bfa3215c42cc26b547b16129c")); // 9c12167b546bc22cc41532fa0b44c4f91cbbbd3027dc224eeb9813065aacf810
+    static const uint256 expect2(uint256S("ed59b7dc6ef3c06fcdb6663aa06bdc79bf06cd3ffa31ec643603ac0f5449c4e1")); // e1c449540fac033664ec31fa3fcd06bf79dc6ba03a66b6cd6fc0f36edcb759ed
+    static const uint256 expect3(uint256S("8376835977a38a4ee0510e70700fe283ce9e8fccdec598fce8fcef7cba47f530")); // 30f547ba7ceffce8fc98c5decc8f9ece83e20f70700e51e04e8aa37759837683
+    static const uint256 expect4(uint256S("2329473c3f8ab7b747abe35bac3685a8ef4623044948435e83a8af6b591f241e")); // 1e241f596bafa8835e434849042346efa88536ac5be3ab47b7b78a3f3c472923
+
+    std::vector<unsigned char> merkle_branch;
+    // If the branch is empty, root hash is the leaf hash.
+    BOOST_CHECK(ComputeTaprootMerkleRootFromBranch(hash1, &merkle_branch[0], merkle_branch.size()) == hash1);
+    // Hashes are ordered lexicographically. The first byte is most significant.
+    // It is prepended with a 64-byte header: SHA256("TapBranch") x 2 =
+    // 1941a1f2e56eb95fa2a9f194be5c01f7216f33ed82b091463490d05bf516a0151941a1f2e56eb95fa2a9f194be5c01f7216f33ed82b091463490d05bf516a015
+    // SHA256(1941....a015||0000....0002||0100....0000) = 9c12167b546bc22cc41532fa0b44c4f91cbbbd3027dc224eeb9813065aacf810
+    merkle_branch.resize(32);
+    memcpy(&merkle_branch[0], hash1.begin(), 32);
+    BOOST_CHECK(ComputeTaprootMerkleRootFromBranch(hash2, &merkle_branch[0], merkle_branch.size()) == expect1);
+    // Swapping hash1 and hash2 should give the same result
+    memcpy(&merkle_branch[0], hash2.begin(), 32);
+    BOOST_CHECK(ComputeTaprootMerkleRootFromBranch(hash1, &merkle_branch[0], merkle_branch.size()) == expect1);
+    // hash3 is smaller than expect1 and is serialzed first
+    // SHA256(1941....a015||9999....9999||9c12....f810) = e1c449540fac033664ec31fa3fcd06bf79dc6ba03a66b6cd6fc0f36edcb759ed
+    merkle_branch.resize(64);
+    memcpy(&merkle_branch[32], hash3.begin(), 32);
+    BOOST_CHECK(ComputeTaprootMerkleRootFromBranch(hash1, &merkle_branch[0], merkle_branch.size()) == expect2);
+    // hash4 is bigger than expect2 and is serialzed first
+    // SHA256(1941....a015||e1c4....59ed||e1e1....e1e1) = 30f547ba7ceffce8fc98c5decc8f9ece83e20f70700e51e04e8aa37759837683
+    merkle_branch.resize(96);
+    memcpy(&merkle_branch[64], hash4.begin(), 32);
+    BOOST_CHECK(ComputeTaprootMerkleRootFromBranch(hash1, &merkle_branch[0], merkle_branch.size()) == expect3);
+    // Order is irrelevant if the two hashes are the same
+    // SHA256(1941....a015||30f5....7683||30f5....7683) = 1e241f596bafa8835e434849042346efa88536ac5be3ab47b7b78a3f3c472923
+    merkle_branch.resize(128);
+    memcpy(&merkle_branch[96], expect3.begin(), 32);
+    BOOST_CHECK(ComputeTaprootMerkleRootFromBranch(hash1, &merkle_branch[0], merkle_branch.size()) == expect4);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
