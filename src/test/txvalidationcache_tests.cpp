@@ -104,7 +104,8 @@ BOOST_FIXTURE_TEST_CASE(tx_mempool_block_doublespend, TestChain100Setup)
 // any script flag that is implemented as an upgraded NOP code.
 static void ValidateCheckInputsForAllFlags(const CTransaction &tx, uint32_t failing_flags, bool add_to_cache)
 {
-    PrecomputedTransactionData txdata(tx);
+    std::vector<CAmount> amounts;
+    PrecomputedTransactionData txdata(tx, amounts);
     // If we add many more flags, this loop can get too expensive, but we can
     // rewrite in the future to randomly pick a set of flags to evaluate.
     for (uint32_t test_flags=0; test_flags < (1U << 16); test_flags += 1) {
@@ -196,7 +197,8 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         LOCK(cs_main);
 
         CValidationState state;
-        PrecomputedTransactionData ptd_spend_tx(spend_tx);
+        std::vector<CAmount> amounts;
+        PrecomputedTransactionData ptd_spend_tx(spend_tx, amounts);
 
         BOOST_CHECK(!CheckInputs(spend_tx, state, pcoinsTip.get(), true, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG, true, true, ptd_spend_tx, nullptr));
 
@@ -266,7 +268,8 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         // Make it valid, and check again
         invalid_with_cltv_tx.vin[0].scriptSig = CScript() << vchSig << 100;
         CValidationState state;
-        PrecomputedTransactionData txdata(invalid_with_cltv_tx);
+        std::vector<CAmount> amounts;
+        PrecomputedTransactionData txdata(invalid_with_cltv_tx, amounts);
         BOOST_CHECK(CheckInputs(invalid_with_cltv_tx, state, pcoinsTip.get(), true, SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY, true, true, txdata, nullptr));
     }
 
@@ -294,7 +297,8 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         // Make it valid, and check again
         invalid_with_csv_tx.vin[0].scriptSig = CScript() << vchSig << 100;
         CValidationState state;
-        PrecomputedTransactionData txdata(invalid_with_csv_tx);
+        std::vector<CAmount> amounts;
+        PrecomputedTransactionData txdata(invalid_with_csv_tx, amounts);
         BOOST_CHECK(CheckInputs(invalid_with_csv_tx, state, pcoinsTip.get(), true, SCRIPT_VERIFY_CHECKSEQUENCEVERIFY, true, true, txdata, nullptr));
     }
 
@@ -355,7 +359,8 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         tx.vin[1].scriptWitness.SetNull();
 
         CValidationState state;
-        PrecomputedTransactionData txdata(tx);
+        std::vector<CAmount> amounts;
+        PrecomputedTransactionData txdata(tx, amounts);
         // This transaction is now invalid under segwit, because of the second input.
         BOOST_CHECK(!CheckInputs(tx, state, pcoinsTip.get(), true, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, true, true, txdata, nullptr));
 

@@ -1228,6 +1228,15 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
     return set_success(serror);
 }
 
+uint256 GetSHAAmounts(const std::vector<CAmount>& amounts)
+{
+    CHashWriter ss(SER_GETHASH, 0);
+    for (const auto& amount : amounts) {
+        ss << amount;
+    }
+    return ss.GetSHA256();
+}
+
 namespace {
 
 /**
@@ -1328,52 +1337,83 @@ public:
 };
 
 template <class T>
-uint256 GetPrevoutHash(const T& txTo)
+uint256 GetSHAPrevout(const T& txTo)
 {
     CHashWriter ss(SER_GETHASH, 0);
     for (const auto& txin : txTo.vin) {
         ss << txin.prevout;
     }
-    return ss.GetHash();
+    return ss.GetSHA256();
 }
 
 template <class T>
-uint256 GetSequenceHash(const T& txTo)
+uint256 GetSHASequence(const T& txTo)
 {
     CHashWriter ss(SER_GETHASH, 0);
     for (const auto& txin : txTo.vin) {
         ss << txin.nSequence;
     }
-    return ss.GetHash();
+    return ss.GetSHA256();
 }
 
 template <class T>
-uint256 GetOutputsHash(const T& txTo)
+uint256 GetSHAOutputs(const T& txTo)
 {
     CHashWriter ss(SER_GETHASH, 0);
     for (const auto& txout : txTo.vout) {
         ss << txout;
     }
-    return ss.GetHash();
+    return ss.GetSHA256();
+}
+
+template <class T>
+std::pair<uint256, uint256> GetPrevoutHashPair(const T& txTo)
+{
+    std::pair<uint256, uint256> ret;
+    ret.first = GetSHAPrevout(txTo);
+    CSHA256().Write(ret.first.begin(), 32).Finalize(ret.second.begin());
+    return ret;
+}
+
+template <class T>
+std::pair<uint256, uint256> GetSequenceHashPair(const T& txTo)
+{
+    std::pair<uint256, uint256> ret;
+    ret.first = GetSHASequence(txTo);
+    CSHA256().Write(ret.first.begin(), 32).Finalize(ret.second.begin());
+    return ret;
+}
+
+template <class T>
+std::pair<uint256, uint256> GetOutputsHashPair(const T& txTo)
+{
+    std::pair<uint256, uint256> ret;
+    ret.first = GetSHAOutputs(txTo);
+    CSHA256().Write(ret.first.begin(), 32).Finalize(ret.second.begin());
+    return ret;
 }
 
 } // namespace
 
 template <class T>
-PrecomputedTransactionData::PrecomputedTransactionData(const T& txTo)
+PrecomputedTransactionData::PrecomputedTransactionData(const T& txTo, const std::vector<CAmount>& amounts)
 {
     // Cache is calculated only for transactions with witness
     if (txTo.HasWitness()) {
-        hashPrevouts = GetPrevoutHash(txTo);
-        hashSequence = GetSequenceHash(txTo);
-        hashOutputs = GetOutputsHash(txTo);
-        ready = true;
+        hashpair_prevouts = GetPrevoutHashPair(txTo);
+        hashpair_sequence = GetSequenceHashPair(txTo);
+        hashpair_outputs = GetOutputsHashPair(txTo);
+        hashpairs_ready = true;
+        if (amounts.size() == txTo.vin.size()) {
+            sha_amounts = GetSHAAmounts(amounts);
+            sha_amounts_ready = true;
+        }
     }
 }
 
 // explicit instantiation
-template PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& txTo);
-template PrecomputedTransactionData::PrecomputedTransactionData(const CMutableTransaction& txTo);
+template PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& txTo, const std::vector<CAmount>& amounts);
+template PrecomputedTransactionData::PrecomputedTransactionData(const CMutableTransaction& txTo, const std::vector<CAmount>& amounts);
 
 template <class T>
 uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CTxOut& prev_txout, SigVersion sigversion, const PrecomputedTransactionData* cache)
@@ -1384,19 +1424,19 @@ uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn
         uint256 hashPrevouts;
         uint256 hashSequence;
         uint256 hashOutputs;
-        const bool cacheready = cache && cache->ready;
+        const bool cacheready = cache && cache->hashpairs_ready;
 
         if (!(nHashType & SIGHASH_ANYONECANPAY)) {
-            hashPrevouts = cacheready ? cache->hashPrevouts : GetPrevoutHash(txTo);
+            hashPrevouts = cacheready ? cache->hashpair_prevouts.second : GetPrevoutHashPair(txTo).second;
         }
 
         if (!(nHashType & SIGHASH_ANYONECANPAY) && (nHashType & 0x1f) != SIGHASH_SINGLE && (nHashType & 0x1f) != SIGHASH_NONE) {
-            hashSequence = cacheready ? cache->hashSequence : GetSequenceHash(txTo);
+            hashSequence = cacheready ? cache->hashpair_sequence.second : GetSequenceHashPair(txTo).second;
         }
 
 
         if ((nHashType & 0x1f) != SIGHASH_SINGLE && (nHashType & 0x1f) != SIGHASH_NONE) {
-            hashOutputs = cacheready ? cache->hashOutputs : GetOutputsHash(txTo);
+            hashOutputs = cacheready ? cache->hashpair_outputs.second : GetOutputsHashPair(txTo).second;
         } else if ((nHashType & 0x1f) == SIGHASH_SINGLE && nIn < txTo.vout.size()) {
             CHashWriter ss(SER_GETHASH, 0);
             ss << txTo.vout[nIn];

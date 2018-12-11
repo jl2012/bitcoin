@@ -129,11 +129,13 @@ enum
 
 struct PrecomputedTransactionData
 {
-    uint256 hashPrevouts, hashSequence, hashOutputs;
-    bool ready = false;
+    std::pair<uint256, uint256> hashpair_prevouts, hashpair_sequence, hashpair_outputs;
+    uint256 sha_amounts;
+    bool hashpairs_ready = false;
+    bool sha_amounts_ready = false;
 
     template <class T>
-    explicit PrecomputedTransactionData(const T& tx);
+    explicit PrecomputedTransactionData(const T& tx, const std::vector<CAmount>& amounts);
 };
 
 struct MetasData
