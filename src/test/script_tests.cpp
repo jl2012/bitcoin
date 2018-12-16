@@ -102,6 +102,7 @@ static ScriptErrorDesc script_errors[]={
     {SCRIPT_ERR_BAD_OP_MASKEDPUSH, "BAD_OP_MASKEDPUSH"},
     {SCRIPT_ERR_CHECKDLSVERIFY, "CHECKDLSVERIFY"},
     {SCRIPT_ERR_SIG_DLS_SIZE, "SIG_DLS_SIZE"},
+    {SCRIPT_ERR_WEIGHT_DLS_RATIO, "WEIGHT_DLS_RATIO"},
 };
 
 static const char *FormatScriptError(ScriptError_t err)

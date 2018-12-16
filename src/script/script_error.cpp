@@ -99,6 +99,8 @@ const char* ScriptErrorString(const ScriptError serror)
             return "Script failed an OP_CHECKDLSVERIFY operation";
         case SCRIPT_ERR_SIG_DLS_SIZE:
             return "Invalid discrete logarithm signature size";
+        case SCRIPT_ERR_WEIGHT_DLS_RATIO:
+            return "Too many successful OP_CHECKDLS relatively to input size";
         case SCRIPT_ERR_UNKNOWN_ERROR:
         case SCRIPT_ERR_ERROR_COUNT:
         default: break;

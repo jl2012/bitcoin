@@ -356,6 +356,8 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
     int nOpCount = 0;
     bool fRequireMinimal = (flags & SCRIPT_VERIFY_MINIMALDATA) != 0;
     int16_t opcode_position = -1;
+    const size_t input_weight = checker.GetInputWitnessWeight() + MIN_TXIN_WEIGHT;
+    int dls_passed = 0;
     MetasData metas_data;
     if (sigversion == SigVersion::METAS_SCRIPTPATH_V0) {
         CScript masked_script = script;
@@ -1178,7 +1180,11 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     }
                     bool fSuccess = checker.CheckSig(vchSig, vchPubKey, CScript(), sigversion);
 
-                    if (!fSuccess && vchSig.size())
+                    if (fSuccess) {
+                        if (++dls_passed * MIN_WEIGHT_PER_DLS_PASSED > input_weight)
+                            return set_error(serror, SCRIPT_ERR_WEIGHT_DLS_RATIO);
+                    }
+                    else if (vchSig.size() != 0)
                         return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
 
                     popstack(stack);
@@ -1554,6 +1560,12 @@ bool GenericTransactionSignatureChecker<T>::CheckSequence(const CScriptNum& nSeq
         return false;
 
     return true;
+}
+
+template <class T>
+size_t GenericTransactionSignatureChecker<T>::GetInputWitnessWeight() const
+{
+    return ::GetSerializeSize(txTo->vin[nIn].scriptWitness.stack, PROTOCOL_VERSION);
 }
 
 // explicit instantiation
