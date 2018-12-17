@@ -93,6 +93,10 @@ const char* ScriptErrorString(const ScriptError serror)
             return "Using OP_CODESEPARATOR in non-witness script";
         case SCRIPT_ERR_SIG_FINDANDDELETE:
             return "Signature is found in scriptCode";
+        case SCRIPT_ERR_BAD_OP_MASKEDPUSH:
+            return "Invalid OP_MASKEDPUSH";
+        case SCRIPT_ERR_CHECKDLSVERIFY:
+            return "Script failed an OP_CHECKDLSVERIFY operation";
         case SCRIPT_ERR_UNKNOWN_ERROR:
         case SCRIPT_ERR_ERROR_COUNT:
         default: break;

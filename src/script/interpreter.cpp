@@ -219,7 +219,7 @@ bool static CheckPubKeyEncoding(const valtype &vchPubKey, unsigned int flags, co
         return set_error(serror, SCRIPT_ERR_PUBKEYTYPE);
     }
     // Only compressed keys are accepted in segwit
-    if ((flags & SCRIPT_VERIFY_WITNESS_PUBKEYTYPE) != 0 && sigversion == SigVersion::WITNESS_V0 && !IsCompressedPubKey(vchPubKey)) {
+    if ((((flags & SCRIPT_VERIFY_WITNESS_PUBKEYTYPE) != 0 && sigversion == SigVersion::WITNESS_V0) || sigversion == SigVersion::METAS_SCRIPTPATH_V0) && !IsCompressedPubKey(vchPubKey)) {
         return set_error(serror, SCRIPT_ERR_WITNESS_PUBKEYTYPE);
     }
     return true;
@@ -278,6 +278,50 @@ int FindAndDelete(CScript& script, const CScript& b)
     return nFound;
 }
 
+bool FindMaskedPushAndSuccess(CScript& script, int& found_maskedpush, std::vector<opcodetype>& found_success, ScriptError* serror)
+{
+    CScript result;
+    result.reserve(script.size());
+    found_maskedpush = 0;
+    found_success.clear();
+    CScript::const_iterator pc = script.begin();
+    CScript::const_iterator pc2 = pc;
+    CScript::const_iterator pend = script.end();
+    opcodetype opcode;
+    bool mask_next = false;
+    while (pc < pend) {
+        if (!script.GetOp(pc, opcode))
+            return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+        if (mask_next) {
+            if (opcode > OP_16 || opcode == OP_MASKEDPUSH)
+                return set_error(serror, SCRIPT_ERR_BAD_OP_MASKEDPUSH);
+            result.insert(result.end(), (unsigned char)OP_VERIF);
+            mask_next = false;
+            pc2 = pc;
+        }
+        if (opcode == OP_MASKEDPUSH) {
+            result.insert(result.end(), pc2, pc);
+            found_maskedpush = true;
+            mask_next = true;
+            pc2 = pc;
+        }
+        else if ((opcode >= OP_SUCCESS126 && opcode <= OP_SUCCESS129) ||
+                 (opcode >= OP_SUCCESS131 && opcode <= OP_SUCCESS134) ||
+                 (opcode >= OP_SUCCESS137 && opcode <= OP_SUCCESS138) ||
+                 (opcode >= OP_SUCCESS141 && opcode <= OP_SUCCESS142) ||
+                 (opcode >= OP_SUCCESS149 && opcode <= OP_SUCCESS153) ||
+                  opcode >= OP_SUCCESS189)
+                found_success.push_back(opcode);
+    }
+    if (mask_next)
+        return set_error(serror, SCRIPT_ERR_BAD_OP_MASKEDPUSH);
+    if (found_maskedpush) {
+        result.insert(result.end(), pc2, pend);
+        script = std::move(result);
+    }
+    return true;
+}
+
 bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
 {
     static const CScriptNum bnZero(0);
@@ -300,6 +344,28 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
         return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
     int nOpCount = 0;
     bool fRequireMinimal = (flags & SCRIPT_VERIFY_MINIMALDATA) != 0;
+    int16_t opcode_position = -1;
+    MetasData metas_data;
+    if (sigversion == SigVersion::METAS_SCRIPTPATH_V0) {
+        CScript masked_script = script;
+        int found_maskedpush;
+        std::vector<opcodetype> found_success;
+        if (!FindMaskedPushAndSuccess(masked_script, found_maskedpush, found_success, serror))
+            return false;
+        if (found_success.size() > 0) {
+            if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS)
+                return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
+            stack.clear();
+            stack.push_back(vchTrue);
+            return set_success(serror);
+        }
+        CSHA256().Write(&script[0], script.size()).Finalize(metas_data.sha_script.begin());
+        if (found_maskedpush > 0)
+            CSHA256().Write(&masked_script[0], masked_script.size()).Finalize(metas_data.sha_masked_script.begin());
+        else
+            metas_data.sha_masked_script = metas_data.sha_script;
+        metas_data.codeseparator_position = opcode_position;
+    }
 
     try
     {
@@ -319,6 +385,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
             if (opcode > OP_16 && ++nOpCount > MAX_OPS_PER_SCRIPT)
                 return set_error(serror, SCRIPT_ERR_OP_COUNT);
 
+            ++opcode_position;
+
+            // Disabled opcodes. Note how these were processed as OP_SUCCESSx in v0 Metas script.
             if (opcode == OP_CAT ||
                 opcode == OP_SUBSTR ||
                 opcode == OP_LEFT ||
@@ -334,7 +403,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 opcode == OP_MOD ||
                 opcode == OP_LSHIFT ||
                 opcode == OP_RSHIFT)
-                return set_error(serror, SCRIPT_ERR_DISABLED_OPCODE); // Disabled opcodes.
+                return set_error(serror, SCRIPT_ERR_DISABLED_OPCODE);
 
             // With SCRIPT_VERIFY_CONST_SCRIPTCODE, OP_CODESEPARATOR in non-segwit script is rejected even in an unexecuted branch
             if (opcode == OP_CODESEPARATOR && sigversion == SigVersion::BASE && (flags & SCRIPT_VERIFY_CONST_SCRIPTCODE))
@@ -377,6 +446,12 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 }
                 break;
 
+                case OP_MASKEDPUSH:
+                {
+                    if (sigversion != SigVersion::METAS_SCRIPTPATH_V0)
+                        return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+                }
+                break;
 
                 //
                 // Control
@@ -908,6 +983,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
 
                     // Hash starts after the code separator
                     pbegincodehash = pc;
+                    metas_data.codeseparator_position = opcode_position;
                 }
                 break;
 
@@ -1059,6 +1135,58 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                             popstack(stack);
                         else
                             return set_error(serror, SCRIPT_ERR_CHECKMULTISIGVERIFY);
+                    }
+                }
+                break;
+
+                case OP_CHECKDLS:
+                case OP_CHECKDLSVERIFY:
+                case OP_CHECKDLSADD:
+                {
+                    if (sigversion != SigVersion::METAS_KEYPATH && sigversion != SigVersion::METAS_SCRIPTPATH_V0)
+                        return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+
+                    if (opcode == OP_CHECKDLSADD) {
+                        // (sig x pubkey -- out)
+                        // OP_CHECKDLSADD is a shorthand for OP_ROT OP_SWAP OP_CHECKDLS OP_ADD
+                        if (stack.size() < 3)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        swap(stacktop(-3), stacktop(-2)); // OP_ROT and OP_SWAP combined
+                    }
+
+                    // OP_CHECKDLS (sig pubkey -- bool)
+                    else if (stack.size() < 2)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    valtype& vchSig    = stacktop(-2);
+                    valtype& vchPubKey = stacktop(-1);
+
+                    if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, sigversion, serror)) {
+                        //serror is set
+                        return false;
+                    }
+                    bool fSuccess = checker.CheckSig(vchSig, vchPubKey, CScript(), sigversion);
+
+                    if (!fSuccess && vchSig.size())
+                        return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
+
+                    popstack(stack);
+                    popstack(stack);
+                    stack.push_back(fSuccess ? vchTrue : vchFalse);
+                    if (opcode == OP_CHECKDLSVERIFY) {
+                        if (fSuccess)
+                            popstack(stack);
+                        else
+                            return set_error(serror, SCRIPT_ERR_CHECKDLSVERIFY);
+                    }
+                    else if (opcode == OP_CHECKDLSADD) {
+                        // OP_ADD
+                        CScriptNum bn1(stacktop(-2), fRequireMinimal);
+                        CScriptNum bn2(stacktop(-1), fRequireMinimal);
+                        CScriptNum bn = bn1 + bn2;
+                        popstack(stack);
+                        popstack(stack);
+                        stack.push_back(bn.getvch());
                     }
                 }
                 break;

@@ -128,10 +128,18 @@ struct PrecomputedTransactionData
     explicit PrecomputedTransactionData(const T& tx);
 };
 
+struct MetasData
+{
+    uint256 sha_script, sha_masked_script;
+    int16_t codeseparator_position;
+};
+
 enum class SigVersion
 {
     BASE = 0,
     WITNESS_V0 = 1,
+    METAS_KEYPATH = 2,
+    METAS_SCRIPTPATH_V0 = 3,
 };
 
 /** Signature hash sizes */
@@ -191,5 +199,6 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags);
 
 int FindAndDelete(CScript& script, const CScript& b);
+bool FindMaskedPushAndSuccess(CScript& script, int& found_maskedpush, std::vector<opcodetype>& found_success, ScriptError* serror);
 
 #endif // BITCOIN_SCRIPT_INTERPRETER_H

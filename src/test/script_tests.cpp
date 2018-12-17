@@ -99,6 +99,8 @@ static ScriptErrorDesc script_errors[]={
     {SCRIPT_ERR_WITNESS_PUBKEYTYPE, "WITNESS_PUBKEYTYPE"},
     {SCRIPT_ERR_OP_CODESEPARATOR, "OP_CODESEPARATOR"},
     {SCRIPT_ERR_SIG_FINDANDDELETE, "SIG_FINDANDDELETE"},
+    {SCRIPT_ERR_BAD_OP_MASKEDPUSH, "BAD_OP_MASKEDPUSH"},
+    {SCRIPT_ERR_CHECKDLSVERIFY, "CHECKDLSVERIFY"},
 };
 
 static const char *FormatScriptError(ScriptError_t err)
@@ -1464,6 +1466,82 @@ BOOST_AUTO_TEST_CASE(script_FindAndDelete)
     expect = ScriptFromHex("03feed");
     BOOST_CHECK_EQUAL(FindAndDelete(s, d), 1);
     BOOST_CHECK(s == expect);
+}
+
+BOOST_AUTO_TEST_CASE(script_FindMaskedPushAndSuccess)
+{
+    // Exercise the script_FindMaskedPushAndSuccess functionality
+    CScript s;
+    CScript e;
+    int found_maskedpush;
+    std::vector<opcodetype> found_success;
+
+    s = CScript() << OP_1 << OP_2 << OP_3;
+    e = s;
+    BOOST_CHECK(FindMaskedPushAndSuccess(s, found_maskedpush, found_success, nullptr));
+    BOOST_CHECK(s == e);
+    BOOST_CHECK_EQUAL(found_maskedpush, 0);
+    BOOST_CHECK_EQUAL(found_success.size(), 0);
+
+    s = ScriptFromHex("51015002505053");
+    e = s;
+    BOOST_CHECK(FindMaskedPushAndSuccess(s, found_maskedpush, found_success, nullptr));
+    BOOST_CHECK(s == e);
+    BOOST_CHECK_EQUAL(found_maskedpush, 0);
+    BOOST_CHECK_EQUAL(found_success.size(), 0);
+
+    s = ScriptFromHex("5101500250"); // invalid: incomplete push
+    BOOST_CHECK(!FindMaskedPushAndSuccess(s, found_maskedpush, found_success, nullptr));
+
+    e = CScript() << OP_1 << OP_MASKEDPUSH << OP_VERIF;
+    s = CScript() << OP_1 << OP_MASKEDPUSH << OP_2;
+    BOOST_CHECK(FindMaskedPushAndSuccess(s, found_maskedpush, found_success, nullptr));
+    BOOST_CHECK(s == e);
+    BOOST_CHECK_EQUAL(found_maskedpush, 1);
+    BOOST_CHECK_EQUAL(found_success.size(), 0);
+    s = ScriptFromHex("515002fe50");
+    BOOST_CHECK(FindMaskedPushAndSuccess(s, found_maskedpush, found_success, nullptr));
+    BOOST_CHECK(s == e);
+    BOOST_CHECK_EQUAL(found_maskedpush, 1);
+    BOOST_CHECK_EQUAL(found_success.size(), 0);
+    s = ScriptFromHex("51500150");
+    BOOST_CHECK(FindMaskedPushAndSuccess(s, found_maskedpush, found_success, nullptr));
+    BOOST_CHECK(s == e);
+    BOOST_CHECK_EQUAL(found_maskedpush, 1);
+    BOOST_CHECK_EQUAL(found_success.size(), 0);
+    s = ScriptFromHex("51504e02000000fe50");
+    BOOST_CHECK(FindMaskedPushAndSuccess(s, found_maskedpush, found_success, nullptr));
+    BOOST_CHECK(s == e);
+    BOOST_CHECK_EQUAL(found_maskedpush, 1);
+    BOOST_CHECK_EQUAL(found_success.size(), 0);
+//
+//    s = ScriptFromHex("51bd4e02000000feed01bd02bdbd");
+//    e = ScriptFromHex("51bd6501bd02bdbd");
+//    BOOST_CHECK_EQUAL(FindAndMaskPush(s), 1);
+//    BOOST_CHECK(s == e);
+//
+//    s = ScriptFromHex("51bd4e02000000feed02bd"); // invalid: incomplete push
+//    e = ScriptFromHex("51bd6502bd");
+//    BOOST_CHECK_EQUAL(FindAndMaskPush(s), 1);
+//    BOOST_CHECK(s == e);
+//
+//    s = CScript() << OP_1 << OP_IF << OP_MASK << OP_8 << OP_ELSE << OP_MASK << OP_9 << OP_ENDIF;
+//    e = CScript() << OP_1 << OP_IF << OP_MASK << OP_VERIF << OP_ELSE << OP_MASK << OP_VERIF << OP_ENDIF;
+//    BOOST_CHECK_EQUAL(FindAndMaskPush(s), 2);
+//    BOOST_CHECK(s == e);
+//
+//    s = CScript() << OP_1 << OP_MASK << OP_MASK << OP_3;
+//    BOOST_CHECK_EQUAL(FindAndMaskPush(s), -1);
+//    s = CScript() << OP_1 << OP_2 << OP_3 << OP_MASK;
+//    BOOST_CHECK_EQUAL(FindAndMaskPush(s), -1);
+//    s = CScript() << OP_1 << OP_2 << OP_3 << OP_MASK << OP_MASK;
+//    BOOST_CHECK_EQUAL(FindAndMaskPush(s), -1);
+//    s = CScript() << OP_1 << OP_2 << OP_3 << OP_MASK << OP_DUP;
+//    BOOST_CHECK_EQUAL(FindAndMaskPush(s), -1);
+//    s = CScript() << OP_1 << OP_2 << OP_MASK << OP_RESERVED << OP_3;
+//    BOOST_CHECK_EQUAL(FindAndMaskPush(s), -1);
+//    s = ScriptFromHex("51bd02fe"); // invalid: incomplete push
+//    BOOST_CHECK_EQUAL(FindAndMaskPush(s), -1);
 }
 
 BOOST_AUTO_TEST_CASE(script_HasValidOps)
