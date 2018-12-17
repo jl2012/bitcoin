@@ -55,6 +55,8 @@ static const size_t MIN_TXIN_WEIGHT = 41 * 4;
 static const uint32_t TAPBRANCH_MIDSTATE[8] = {0x23a865a9ul, 0xb8a40da7ul, 0x977c1e04ul, 0xc49e246ful, 0xb5be1376ul, 0x9d24c9b7ul, 0xb583b5d4ul, 0xa8d226d2ul};
 // Header for taproot leaf nodes: SHA256("TapLeaf") x 2 = aeea8fdc4208983105734b58081d1e2638d35f1cb54008d4d357ca03be78e9eeaeea8fdc4208983105734b58081d1e2638d35f1cb54008d4d357ca03be78e9ee
 static const uint32_t TAPLEAF_MIDSTATE[8] = {0x9ce0e4e6ul, 0x7c116c39ul, 0x38b3caf2ul, 0xc30f5089ul, 0xd3f3936cul, 0x47636e60ul, 0x7db33eeaul, 0xddc6f0c9ul};
+// Tag for Metas script v0 sighash: SHA256("???") x 2 =
+static const uint32_t METASV0_MIDSTATE[8] = {0x00000000ul, 0x11111111ul, 0x22222222ul, 0x33333333ul, 0x44444444ul, 0x55555555ul, 0x66666666ul, 0x77777777ul};
 
 template <typename T>
 std::vector<unsigned char> ToByteVector(const T& in)

@@ -1024,7 +1024,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         //serror is set
                         return false;
                     }
-                    bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
+                    bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion, nullptr);
 
                     if (!fSuccess && (flags & SCRIPT_VERIFY_NULLFAIL) && vchSig.size())
                         return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
@@ -1102,7 +1102,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         }
 
                         // Check signature
-                        bool fOk = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
+                        bool fOk = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion, nullptr);
 
                         if (fOk) {
                             isig++;
@@ -1178,7 +1178,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         //serror is set
                         return false;
                     }
-                    bool fSuccess = checker.CheckSig(vchSig, vchPubKey, CScript(), sigversion);
+                    bool fSuccess = checker.CheckSig(vchSig, vchPubKey, CScript(), sigversion, &metas_data);
 
                     if (fSuccess) {
                         if (++dls_passed * MIN_WEIGHT_PER_DLS_PASSED > input_weight)
@@ -1416,15 +1416,15 @@ template PrecomputedTransactionData::PrecomputedTransactionData(const CTransacti
 template PrecomputedTransactionData::PrecomputedTransactionData(const CMutableTransaction& txTo, const std::vector<CAmount>& amounts);
 
 template <class T>
-uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CTxOut& prev_txout, SigVersion sigversion, const PrecomputedTransactionData* cache)
+uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CTxOut& prev_txout, SigVersion sigversion, const PrecomputedTransactionData* cache, const MetasData* metas_data)
 {
     assert(nIn < txTo.vin.size());
+    const bool cacheready = cache != nullptr && cache->hashpairs_ready;
 
     if (sigversion == SigVersion::WITNESS_V0) {
         uint256 hashPrevouts;
         uint256 hashSequence;
         uint256 hashOutputs;
-        const bool cacheready = cache && cache->hashpairs_ready;
 
         if (!(nHashType & SIGHASH_ANYONECANPAY)) {
             hashPrevouts = cacheready ? cache->hashpair_prevouts.second : GetPrevoutHashPair(txTo).second;
@@ -1466,6 +1466,64 @@ uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn
         return ss.GetHash();
     }
 
+    if (sigversion == SigVersion::METAS_KEYPATH || sigversion == SigVersion::METAS_SCRIPTPATH_V0) {
+        CHashWriter ss(SER_GETHASH, 0, METASV0_MIDSTATE);
+
+        unsigned char spend_type = (prev_txout.scriptPubKey.size() == 23) ? 1 : 0;
+        if (sigversion == SigVersion::METAS_SCRIPTPATH_V0)
+            spend_type |= 2;
+        ss << spend_type;
+        ss << static_cast<unsigned char>(nHashType);
+        ss << txTo.nVersion;
+
+        // Inputs
+        const int input_type = nHashType & SH2_INPUT_MASK;
+        if (input_type == SH2_INPUT_ALL) {
+            assert (cache != nullptr && cache->sha_amounts_ready);
+            ss << cache->hashpair_prevouts.first;
+            ss << cache->sha_amounts;
+            ss << cache->hashpair_sequence.first;
+            ss << static_cast<uint16_t>(nIn);
+        }
+        else {
+            if (input_type == SH2_INPUT_SINGLE)
+                ss << txTo.vin[nIn].prevout;
+            ss << prev_txout.nValue;
+            ss << txTo.vin[nIn].nSequence;
+        }
+
+        const int output_type = nHashType & SH2_OUTPUT_MASK;
+        if (output_type == SH2_OUTPUT_ALL) {
+            uint256 sha_outputs = cacheready ? cache->hashpair_outputs.first : GetSHAOutputs(txTo);
+            ss << sha_outputs;
+        }
+        else if (output_type == SH2_OUTPUT_SINGLE) {
+            assert (nIn < txTo.vout.size());
+            CHashWriter ss_single_output(SER_GETHASH, 0);
+            ss_single_output << txTo.vout[nIn];
+            uint256 sha_single_output = ss_single_output.GetSHA256();
+            ss << sha_single_output;
+        }
+
+        ss << txTo.nLockTime;
+
+        if (input_type != SH2_INPUT_MASKEDSCRIPTONLY)
+            ss << prev_txout.scriptPubKey;
+
+        if (sigversion == SigVersion::METAS_SCRIPTPATH_V0) {
+            assert (metas_data != nullptr);
+            if (input_type == SH2_INPUT_MASKEDSCRIPTONLY)
+                ss << metas_data->sha_masked_script;
+            else
+                ss << metas_data->sha_script;
+            ss << metas_data->codeseparator_position;
+        }
+        else
+            assert (input_type != SH2_INPUT_MASKEDSCRIPTONLY);
+
+        return ss.GetSHA256();
+    }
+
     static const uint256 one(uint256S("0000000000000000000000000000000000000000000000000000000000000001"));
 
     // Check for invalid use of SIGHASH_SINGLE
@@ -1492,7 +1550,7 @@ bool GenericTransactionSignatureChecker<T>::VerifySignature(const std::vector<un
 }
 
 template <class T>
-bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned char>& vchSigIn, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
+bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned char>& vchSigIn, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, const MetasData* metas_data) const
 {
     int nHashType = 0;
     CPubKey pubkey(vchPubKey);

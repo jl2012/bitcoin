@@ -159,12 +159,12 @@ static constexpr size_t WITNESS_V0_SCRIPTHASH_SIZE = 32;
 static constexpr size_t WITNESS_V0_KEYHASH_SIZE = 20;
 
 template <class T>
-uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CTxOut& prev_txout, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr);
+uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CTxOut& prev_txout, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr, const MetasData* metas_data = nullptr);
 
 class BaseSignatureChecker
 {
 public:
-    virtual bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
+    virtual bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, const MetasData* metas_data) const
     {
         return false;
     }
@@ -202,7 +202,7 @@ protected:
 public:
     GenericTransactionSignatureChecker(const T* txToIn, unsigned int nInIn, const CTxOut& prev_txout_in) : txTo(txToIn), nIn(nInIn), prev_txout(prev_txout_in), txdata(nullptr) {}
     GenericTransactionSignatureChecker(const T* txToIn, unsigned int nInIn, const CTxOut& prev_txout_in, const PrecomputedTransactionData& txdataIn) : txTo(txToIn), nIn(nInIn), prev_txout(prev_txout_in), txdata(&txdataIn) {}
-    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override;
+    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, const MetasData* metas_data) const override;
     bool CheckLockTime(const CScriptNum& nLockTime) const override;
     bool CheckSequence(const CScriptNum& nSequence) const override;
     size_t GetInputWitnessWeight() const override;
