@@ -278,7 +278,7 @@ int FindAndDelete(CScript& script, const CScript& b)
     return nFound;
 }
 
-bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
+bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror, SigHashCache* cache)
 {
     static const CScriptNum bnZero(0);
     static const CScriptNum bnOne(1);
@@ -908,6 +908,8 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
 
                     // Hash starts after the code separator
                     pbegincodehash = pc;
+                    if (cache != nullptr)
+                        cache->Clear();
                 }
                 break;
 
@@ -935,7 +937,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         //serror is set
                         return false;
                     }
-                    bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
+                    bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion, cache);
 
                     if (!fSuccess && (flags & SCRIPT_VERIFY_NULLFAIL) && vchSig.size())
                         return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
@@ -1013,7 +1015,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         }
 
                         // Check signature
-                        bool fOk = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
+                        bool fOk = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion, cache);
 
                         if (fOk) {
                             isig++;
@@ -1307,7 +1309,7 @@ bool GenericTransactionSignatureChecker<T>::VerifySignature(const std::vector<un
 }
 
 template <class T>
-bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned char>& vchSigIn, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
+bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned char>& vchSigIn, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, SigHashCache* cache) const
 {
     CPubKey pubkey(vchPubKey);
     if (!pubkey.IsValid())
@@ -1320,7 +1322,20 @@ bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned 
     int nHashType = vchSig.back();
     vchSig.pop_back();
 
-    uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, this->txdata);
+    uint256 sighash;
+    if (cache != nullptr) {
+        // nHashType is masked with ~SIGHASH_ANYONECANPAY (0x7f), instead of the usual 0x1f,
+        // to make sure that the cache is not used with non-standard SIGHASH types.
+        int entry = (nHashType & ~(SIGHASH_ANYONECANPAY)) + ((nHashType & SIGHASH_ANYONECANPAY) ? 3 : 0) - 1;
+        assert (entry >= 0 && entry <= 5);
+        if (!cache->set[entry]) {
+            cache->value[entry] = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, this->txdata);
+            cache->set[entry] = true;
+        }
+        sighash = cache->value[entry];
+    }
+    else
+        sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, this->txdata);
 
     if (!VerifySignature(vchSig, pubkey, sighash))
         return false;
@@ -1420,6 +1435,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
 {
     std::vector<std::vector<unsigned char> > stack;
     CScript scriptPubKey;
+    bool cacheable = false;
 
     if (witversion == 0) {
         if (program.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
@@ -1434,6 +1450,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             if (memcmp(hashScriptPubKey.begin(), program.data(), 32)) {
                 return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
             }
+            cacheable = true;
         } else if (program.size() == WITNESS_V0_KEYHASH_SIZE) {
             // Special case for pay-to-pubkeyhash; signature + pubkey in witness
             if (witness.stack.size() != 2) {
@@ -1457,7 +1474,18 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
     }
 
-    if (!EvalScript(stack, scriptPubKey, flags, checker, SigVersion::WITNESS_V0, serror)) {
+    if (cacheable && (flags & SCRIPT_VERIFY_STRICTENC)) {
+        /*
+         *  The sighash cache for P2WSH is possible when STRICTENC is enforced, which accepts only 6 standard SIGHASH
+         *  types. OP_CODESEPARATOR is permitted in P2WSH, and therefore the cache has to be cleared after every
+         *  exectued OP_CODESEPARATOR. This is an acceptable tradeoff for segwit scripts (but not legacy scripts)
+         *  due to the caching at transaction level with PrecomputedTransactionData.
+         */
+        SigHashCache cache;
+        if (!EvalScript(stack, scriptPubKey, flags, checker, SigVersion::WITNESS_V0, serror, &cache))
+            return false;
+    }
+    else if (!EvalScript(stack, scriptPubKey, flags, checker, SigVersion::WITNESS_V0, serror, nullptr)) {
         return false;
     }
 
@@ -1477,6 +1505,14 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     }
     bool hadWitness = false;
 
+    /*
+     *  The sighash cache for legacy scripts requires that the scriptCode is constant during script execution.
+     *  This is enforced by the CONST_SCRIPTCODE flags which forbids OP_CODESEPARATOR and FindAndDelete().
+     *  It only caches the 6 standard SIGHASH types, which is enforced by the STRICTENC flag.
+     *  Caching for segwit inputs is handled in VerifyWitnessProgram().
+     */
+    const bool cacheable = witness->IsNull() && (flags & SCRIPT_VERIFY_STRICTENC) && (flags & SCRIPT_VERIFY_CONST_SCRIPTCODE);
+
     set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
 
     if ((flags & SCRIPT_VERIFY_SIGPUSHONLY) != 0 && !scriptSig.IsPushOnly()) {
@@ -1484,12 +1520,19 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     }
 
     std::vector<std::vector<unsigned char> > stack, stackCopy;
-    if (!EvalScript(stack, scriptSig, flags, checker, SigVersion::BASE, serror))
+    // sighash cache is not needed for scriptSig, assuming the SIGPUSHONLY rules
+    if (!EvalScript(stack, scriptSig, flags, checker, SigVersion::BASE, serror, nullptr))
         // serror is set
         return false;
     if (flags & SCRIPT_VERIFY_P2SH)
         stackCopy = stack;
-    if (!EvalScript(stack, scriptPubKey, flags, checker, SigVersion::BASE, serror))
+    if (cacheable && scriptPubKey.GetSigOpCount(true) > 1) {
+        // The majority of scriptPubKey are P2PKH and P2SH, which do not need sighash cache
+        SigHashCache cache;
+        if (!EvalScript(stack, scriptPubKey, flags, checker, SigVersion::BASE, serror, &cache))
+            return false;
+    }
+    else if (!EvalScript(stack, scriptPubKey, flags, checker, SigVersion::BASE, serror, nullptr))
         // serror is set
         return false;
     if (stack.empty())
@@ -1535,7 +1578,13 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         CScript pubKey2(pubKeySerialized.begin(), pubKeySerialized.end());
         popstack(stack);
 
-        if (!EvalScript(stack, pubKey2, flags, checker, SigVersion::BASE, serror))
+        if (cacheable) {
+            // The majority of non-segwit P2SH redeemScript are multisig which require sighash cache
+            SigHashCache cache;
+            if (!EvalScript(stack, pubKey2, flags, checker, SigVersion::BASE, serror, &cache))
+                return false;
+        }
+        else if (!EvalScript(stack, pubKey2, flags, checker, SigVersion::BASE, serror, nullptr))
             // serror is set
             return false;
         if (stack.empty())
