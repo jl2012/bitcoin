@@ -67,6 +67,9 @@ ssl.EC_POINT_free.argtypes = [ctypes.c_void_p]
 ssl.EC_POINT_mul.restype = ctypes.c_int
 ssl.EC_POINT_mul.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
 
+ssl.EC_POINT_set_compressed_coordinates_GFp.restype = ctypes.c_int
+ssl.EC_POINT_set_compressed_coordinates_GFp.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+
 # this specifies the curve used with ECDSA.
 NID_secp256k1 = 714 # from openssl/obj_mac.h
 
@@ -83,11 +86,11 @@ def _check_result(val, func, args):
 ssl.EC_KEY_new_by_curve_name.restype = ctypes.c_void_p
 ssl.EC_KEY_new_by_curve_name.errcheck = _check_result
 
+POINT_CONVERSION_COMPRESSED = 2
+POINT_CONVERSION_UNCOMPRESSED = 4
+
 class CECKey():
     """Wrapper around OpenSSL's EC_KEY"""
-
-    POINT_CONVERSION_COMPRESSED = 2
-    POINT_CONVERSION_UNCOMPRESSED = 4
 
     def __init__(self):
         self.k = ssl.EC_KEY_new_by_curve_name(NID_secp256k1)
@@ -183,9 +186,9 @@ class CECKey():
 
     def set_compressed(self, compressed):
         if compressed:
-            form = self.POINT_CONVERSION_COMPRESSED
+            form = POINT_CONVERSION_COMPRESSED
         else:
-            form = self.POINT_CONVERSION_UNCOMPRESSED
+            form = POINT_CONVERSION_UNCOMPRESSED
         ssl.EC_KEY_set_conv_form(self.k, form)
 
 
@@ -217,6 +220,31 @@ class CPubKey(bytes):
 
     def verify(self, hash, sig):
         return self._cec_key.verify(hash, sig)
+
+    def tweak_add(self, tweak):
+        if not (self.is_fullyvalid and self.is_compressed):
+            raise ValueError("Not a valid compressed public key.")
+        BN_ONE = ssl.BN_bin2bn(b'\x01', 1, ssl.BN_new())
+        bn_tweak = ssl.BN_bin2bn(tweak, 32, ssl.BN_new())
+        px = ssl.BN_bin2bn(self[1:], 32, ssl.BN_new())
+        py_bit = self[0] & 1
+
+        k = ssl.EC_KEY_new_by_curve_name(NID_secp256k1)
+        group = ssl.EC_KEY_get0_group(k)
+        p = ssl.EC_POINT_new(group)
+        q = ssl.EC_POINT_new(group)
+        ctx = ssl.BN_CTX_new()
+        ssl.EC_POINT_set_compressed_coordinates_GFp(group, p, px, py_bit, ctx)
+
+        if not ssl.EC_POINT_mul(group, q, bn_tweak, p, BN_ONE, ctx):
+            raise ValueError("Could not derive public key from the supplied tweak.")
+        ssl.EC_KEY_set_public_key(k, q)
+        ssl.EC_POINT_free(q)
+        ssl.BN_CTX_free(ctx)
+        ssl.EC_KEY_set_conv_form(k, POINT_CONVERSION_COMPRESSED)
+        mb = ctypes.create_string_buffer(33)
+        ssl.i2o_ECPublicKey(k, ctypes.byref(ctypes.pointer(mb)))
+        return mb.raw
 
     def __str__(self):
         return repr(self)

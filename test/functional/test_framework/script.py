@@ -8,6 +8,8 @@ This file is modified from python-bitcoinlib.
 """
 
 from .messages import CTransaction, CTxOut, sha256, hash256, uint256_from_str, ser_uint256, ser_string
+from .key import CPubKey, CECKey, SECP256K1_ORDER
+from .schnorr_jacobi import schnorr_sign
 
 import hashlib
 import struct
@@ -17,6 +19,9 @@ from .bignum import bn2vch
 MAX_SCRIPT_ELEMENT_SIZE = 520
 
 OPCODE_NAMES = {}
+
+DEFAULT_TAPSCRIPT_VER = 0xc0
+TAPROOT_VER = 0
 
 def hash160(s):
     return hashlib.new('ripemd160', sha256(s)).digest()
@@ -223,11 +228,10 @@ OP_NOP8 = CScriptOp(0xb7)
 OP_NOP9 = CScriptOp(0xb8)
 OP_NOP10 = CScriptOp(0xb9)
 
-# template matching params
-OP_SMALLINTEGER = CScriptOp(0xfa)
-OP_PUBKEYS = CScriptOp(0xfb)
-OP_PUBKEYHASH = CScriptOp(0xfd)
-OP_PUBKEY = CScriptOp(0xfe)
+# tapscript
+OP_CHECKDLS = CScriptOp(0xba)
+OP_CHECKDLSVERIFY = CScriptOp(0xbb)
+OP_CHECKDLSADD = CScriptOp(0xbc)
 
 OP_INVALIDOPCODE = CScriptOp(0xff)
 
@@ -343,10 +347,9 @@ OPCODE_NAMES.update({
     OP_NOP8 : 'OP_NOP8',
     OP_NOP9 : 'OP_NOP9',
     OP_NOP10 : 'OP_NOP10',
-    OP_SMALLINTEGER : 'OP_SMALLINTEGER',
-    OP_PUBKEYS : 'OP_PUBKEYS',
-    OP_PUBKEYHASH : 'OP_PUBKEYHASH',
-    OP_PUBKEY : 'OP_PUBKEY',
+    OP_CHECKDLS : 'OP_CHECKDLS',
+    OP_CHECKDLSVERIFY : 'OP_CHECKDLSVERIFY',
+    OP_CHECKDLSADD : 'OP_CHECKDLSADD',
     OP_INVALIDOPCODE : 'OP_INVALIDOPCODE',
 })
 
@@ -607,6 +610,20 @@ def FindAndDelete(script, sig):
         r += script[last_sop_idx:]
     return CScript(r)
 
+def IsPayToScriptHash(script):
+    return (len(script) == 23 and script[0] == OP_HASH160 and script[1] == 20 and script[22] == OP_EQUAL)
+
+def IsPayToTaproot(script):
+    return (len(script) == 35 and script[0] == OP_1 and script[1] == 33 and script[2] >= 0 and script[2] <= 1)
+
+def TaggedHash(tag, data):
+    ss = ser_uint256(uint256_from_str(sha256(tag.encode('utf-8'))))
+    ss += ss
+    ss += data
+    return sha256(ss)
+
+def GetP2SH(script):
+    return CScript([OP_HASH160, hash160(script), OP_EQUAL])
 
 def SignatureHash(script, txTo, inIdx, hashtype):
     """Consensus-correct SignatureHash
@@ -702,3 +719,154 @@ def SegwitVersion1SignatureHash(script, txTo, inIdx, hashtype, amount):
     ss += struct.pack("<I", hashtype)
 
     return hash256(ss)
+
+def TaprootSignatureHash(txTo, amounts, hash_type, spk, input_index = 0, scriptpath = False, tapscript = CScript(), codeseparator_pos = -1, annex = b''):
+    assert (len(txTo.vin) == len(amounts))
+    assert((hash_type >= 0 and hash_type <= 3) or (hash_type >= 0x81 and hash_type <= 0x83))
+    assert (input_index < len(txTo.vin))
+    ss = struct.pack("<B", 0) # epoch
+    ss += struct.pack("<B", hash_type)
+    ss += struct.pack("<i", txTo.nVersion)
+    ss += struct.pack("<I", txTo.nLockTime)
+    if not (hash_type & SIGHASH_ANYONECANPAY):
+        serialize_prevouts = bytes()
+        serialize_amounts = bytes()
+        serialize_sequence = bytes()
+        for i in range(len(txTo.vin)):
+            serialize_prevouts += txTo.vin[i].prevout.serialize()
+            serialize_amounts += struct.pack("<q", amounts[i])
+            serialize_sequence += struct.pack("<I", txTo.vin[i].nSequence)
+        ss += ser_uint256(uint256_from_str(sha256(serialize_prevouts)))
+        ss += ser_uint256(uint256_from_str(sha256(serialize_amounts)))
+        ss += ser_uint256(uint256_from_str(sha256(serialize_sequence)))
+    if ((hash_type & 3) != SIGHASH_SINGLE and (hash_type & 3) != SIGHASH_NONE):
+        serialize_outputs = bytes()
+        for o in txTo.vout:
+            serialize_outputs += o.serialize()
+        ss += ser_uint256(uint256_from_str(sha256(serialize_outputs)))
+    spend_type = 0
+    if (IsPayToScriptHash(spk)):
+        spend_type = 1
+    else:
+        assert(IsPayToTaproot(spk))
+    if (len(annex) > 0):
+        assert (annex[0] == 0xff)
+        spend_type |= 2
+    if (scriptpath):
+        assert (len(tapscript) > 0)
+        assert (codeseparator_pos >= -1)
+        spend_type |= 4
+    ss += struct.pack("<B", spend_type)
+    ss += ser_string(spk)
+    if (hash_type & SIGHASH_ANYONECANPAY):
+        ss += txTo.vin[input_index].prevout.serialize()
+        ss += struct.pack("<q", amounts[input_index])
+        ss += struct.pack("<I", txTo.vin[input_index].nSequence)
+    else:
+        ss += struct.pack("<H", input_index)
+    if (spend_type & 2):
+        ss += ser_uint256(uint256_from_str(sha256(annex)))
+    if (hash_type & 3 == SIGHASH_SINGLE):
+        assert (input_index < len(txTo.vout))
+        ss += ser_uint256(uint256_from_str(sha256(txTo.vout[input_index].serialize())))
+    if (scriptpath):
+        ss += ser_uint256(uint256_from_str(sha256(tapscript)))
+        ss += struct.pack("<h", codeseparator_pos)
+    assert (len(ss) == 177 - bool(hash_type & SIGHASH_ANYONECANPAY) * 50 - ((hash_type & 3) == SIGHASH_NONE) * 32 - (IsPayToScriptHash(spk)) * 12 + (len(annex) > 0) * 32 + scriptpath * 34)
+    return TaggedHash("TapSighash", ss)
+
+def GetVersionTaggedPubKey(pubkey, version):
+    pubkey = CPubKey(pubkey)
+    assert (pubkey.is_compressed)
+    assert (pubkey.is_fullyvalid)
+    assert (version >= 0 and version < 255 and not (version & 1))
+    tag = struct.pack("<B", pubkey[0] & 1 | version)
+    return tag + pubkey[1:]
+
+class Tapscript():
+    def __init__(self, script, version = DEFAULT_TAPSCRIPT_VER):
+        assert (version >= 0 and version < 255 and not (version & 1))
+        self.script = CScript(script)
+        self.version = version
+
+    def gethash(self, pubkey):
+        return TaggedHash("TapLeaf", GetVersionTaggedPubKey(pubkey, self.version) + self.script)
+
+class Taproot():
+    def __init__(self, key, scripts = [], is_prikey = True, versions = []):
+        assert type(scripts) is list
+        self.hasscript = (scripts != [])
+
+        if is_prikey:
+            assert len(key) < 33
+            if len(key) != 32:
+                key = b'\x00' * (32 - len(key)) + key
+            prikey = CECKey()
+            prikey.set_secretbytes(key)
+            prikey.set_compressed(True)
+            if self.hasscript:
+                self.pubkey_internal = CPubKey(prikey.get_pubkey())
+                self.prikey_internal = int.from_bytes(key, 'big')
+            else:
+                self.pubkey_output = CPubKey(prikey.get_pubkey())
+                self.prikey_output = int.from_bytes(key, 'big')
+        else:
+            pubkey = CPubKey(key)
+            assert pubkey.is_compressed
+            assert pubkey.is_fullyvalid
+            if self.hasscript:
+                self.pubkey_internal = pubkey
+            else:
+                self.pubkey_output = pubkey
+
+        if self.hasscript:
+            self.tapscripts = []
+            self.branch_hashes = []
+            tmp_hashes = []
+            if (len(versions) == 0):
+                versions = [DEFAULT_TAPSCRIPT_VER] * len(scripts)
+            assert len(versions) == len(scripts)
+            for i in range(len(scripts)):
+                tapscript = Tapscript(scripts[i], versions[i])
+                tmp_hashes.append(tapscript.gethash(self.pubkey_internal))
+                self.tapscripts.append(tapscript)
+            self.branch_hashes.append(list(tmp_hashes))
+            while len(tmp_hashes) > 1:
+                for i in range(0, len(tmp_hashes), 2):
+                    if ((i+1) == len(tmp_hashes)):
+                        tmp_hashes[i >> 1] = tmp_hashes[i]
+                    elif (tmp_hashes[i] < tmp_hashes[i+1]):
+                        tmp_hashes[i >> 1] = TaggedHash("TapBranch", tmp_hashes[i] + tmp_hashes[i+1])
+                    else:
+                        tmp_hashes[i >> 1] = TaggedHash("TapBranch", tmp_hashes[i+1] + tmp_hashes[i])
+                tmp_hashes = tmp_hashes[:(len(tmp_hashes)+1) >> 1]
+                self.branch_hashes.append(list(tmp_hashes))
+            self.pubkey_output = self.pubkey_internal.tweak_add(tmp_hashes[0])
+            if is_prikey:
+                self.prikey_output = (self.prikey_internal + int.from_bytes(tmp_hashes[0], 'big')) % SECP256K1_ORDER
+                prikey = CECKey()
+                prikey.set_secretbytes(self.prikey_output.to_bytes(32, 'big'))
+                prikey.set_compressed(True)
+                assert (self.pubkey_output == prikey.get_pubkey())
+
+    def get_scriptpath_stack(self, pos):
+        assert (pos >= 0)
+        assert (pos < len(self.branch_hashes))
+        script = self.tapscripts[pos].script
+        cb = GetVersionTaggedPubKey(self.pubkey_internal, self.tapscripts[pos].version)
+        for i in self.branch_hashes:
+            if pos & 1:
+                cb += i[pos-1]
+            elif (pos+1) < len(i):
+                cb += i[pos+1]
+            pos >>= 1
+        return [script] + [cb]
+
+    def get_spk(self, p2sh=False):
+        spk = CScript([OP_1, GetVersionTaggedPubKey(self.pubkey_output, TAPROOT_VER)])
+        if p2sh:
+            return GetP2SH(spk)
+        return spk
+
+    def sign_with_output_key(self, msg):
+        return schnorr_sign(msg, self.prikey_output)
