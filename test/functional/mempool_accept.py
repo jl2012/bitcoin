@@ -17,12 +17,11 @@ from test_framework.messages import (
     MAX_BLOCK_BASE_SIZE,
 )
 from test_framework.script import (
-    hash160,
     CScript,
     OP_0,
-    OP_EQUAL,
     OP_HASH160,
     OP_RETURN,
+    GetP2SH,
 )
 from test_framework.util import (
     assert_equal,
@@ -266,7 +265,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
             rawtxs=[tx.serialize().hex()],
         )
         tx.deserialize(BytesIO(hex_str_to_bytes(raw_tx_reference)))
-        output_p2sh_burn = CTxOut(nValue=540, scriptPubKey=CScript([OP_HASH160, hash160(b'burn'), OP_EQUAL]))
+        output_p2sh_burn = CTxOut(nValue=540, scriptPubKey=GetP2SH(b'burn'))
         num_scripts = 100000 // len(output_p2sh_burn.serialize())  # Use enough outputs to make the tx too large for our policy
         tx.vout = [output_p2sh_burn] * num_scripts
         self.check_mempool_result(
