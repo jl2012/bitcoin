@@ -154,7 +154,8 @@ BOOST_AUTO_TEST_CASE(tx_valid)
             BOOST_CHECK_MESSAGE(CheckTransaction(tx, state), strTest);
             BOOST_CHECK(state.IsValid());
 
-            PrecomputedTransactionData txdata(tx);
+            std::vector<CTxOut> spent_outputs;
+            spent_outputs.reserve(tx.vin.size());
             for (unsigned int i = 0; i < tx.vin.size(); i++)
             {
                 if (!mapprevOutScriptPubKeys.count(tx.vin[i].prevout))
@@ -162,15 +163,17 @@ BOOST_AUTO_TEST_CASE(tx_valid)
                     BOOST_ERROR("Bad test: " << strTest);
                     break;
                 }
+                CAmount amount = mapprevOutValues.count(tx.vin[i].prevout) ? mapprevOutValues[tx.vin[i].prevout] : 0;
+                spent_outputs.emplace_back(CTxOut(amount, mapprevOutScriptPubKeys[tx.vin[i].prevout]));
+            }
 
-                CAmount amount = 0;
-                if (mapprevOutValues.count(tx.vin[i].prevout)) {
-                    amount = mapprevOutValues[tx.vin[i].prevout];
-                }
+            PrecomputedTransactionData txdata(tx, spent_outputs);
+            for (unsigned int i = 0; i < tx.vin.size(); i++)
+            {
                 unsigned int verify_flags = ParseScriptFlags(test[2].get_str());
                 const CScriptWitness *witness = &tx.vin[i].scriptWitness;
-                BOOST_CHECK_MESSAGE(VerifyScript(tx.vin[i].scriptSig, mapprevOutScriptPubKeys[tx.vin[i].prevout],
-                                                 witness, verify_flags, TransactionSignatureChecker(&tx, i, amount, txdata), &err),
+                BOOST_CHECK_MESSAGE(VerifyScript(tx.vin[i].scriptSig,txdata.m_spent_outputs[i].scriptPubKey,
+                                                 witness, verify_flags, TransactionSignatureChecker(&tx, i, txdata), &err),
                                     strTest);
                 BOOST_CHECK_MESSAGE(err == SCRIPT_ERR_OK, ScriptErrorString(err));
             }
@@ -240,23 +243,26 @@ BOOST_AUTO_TEST_CASE(tx_invalid)
             CValidationState state;
             fValid = CheckTransaction(tx, state) && state.IsValid();
 
-            PrecomputedTransactionData txdata(tx);
-            for (unsigned int i = 0; i < tx.vin.size() && fValid; i++)
+            std::vector<CTxOut> spent_outputs;
+            spent_outputs.reserve(tx.vin.size());
+            for (unsigned int i = 0; i < tx.vin.size(); i++)
             {
                 if (!mapprevOutScriptPubKeys.count(tx.vin[i].prevout))
                 {
                     BOOST_ERROR("Bad test: " << strTest);
                     break;
                 }
+                CAmount amount = mapprevOutValues.count(tx.vin[i].prevout) ? mapprevOutValues[tx.vin[i].prevout] : 0;
+                spent_outputs.emplace_back(CTxOut(amount, mapprevOutScriptPubKeys[tx.vin[i].prevout]));
+            }
 
+            PrecomputedTransactionData txdata(tx, spent_outputs);
+            for (unsigned int i = 0; i < tx.vin.size() && fValid; i++)
+            {
                 unsigned int verify_flags = ParseScriptFlags(test[2].get_str());
-                CAmount amount = 0;
-                if (mapprevOutValues.count(tx.vin[i].prevout)) {
-                    amount = mapprevOutValues[tx.vin[i].prevout];
-                }
                 const CScriptWitness *witness = &tx.vin[i].scriptWitness;
-                fValid = VerifyScript(tx.vin[i].scriptSig, mapprevOutScriptPubKeys[tx.vin[i].prevout],
-                                      witness, verify_flags, TransactionSignatureChecker(&tx, i, amount, txdata), &err);
+                fValid = VerifyScript(tx.vin[i].scriptSig, txdata.m_spent_outputs[i].scriptPubKey,
+                                      witness, verify_flags, TransactionSignatureChecker(&tx, i, txdata), &err);
             }
             BOOST_CHECK_MESSAGE(!fValid, strTest);
             BOOST_CHECK_MESSAGE(err != SCRIPT_ERR_OK, ScriptErrorString(err));
@@ -461,7 +467,6 @@ BOOST_AUTO_TEST_CASE(test_big_witness_transaction)
     CTransaction tx(deserialize, ssout);
 
     // check all inputs concurrently, with the cache
-    PrecomputedTransactionData txdata(tx);
     boost::thread_group threadGroup;
     CCheckQueue<CScriptCheck> scriptcheckqueue(128);
     CCheckQueueControl<CScriptCheck> control(&scriptcheckqueue);
@@ -469,19 +474,16 @@ BOOST_AUTO_TEST_CASE(test_big_witness_transaction)
     for (int i=0; i<20; i++)
         threadGroup.create_thread(std::bind(&CCheckQueue<CScriptCheck>::Thread, std::ref(scriptcheckqueue)));
 
-    std::vector<Coin> coins;
+    std::vector<CTxOut> spent_outputs;
+    spent_outputs.reserve(tx.vin.size());
     for(uint32_t i = 0; i < mtx.vin.size(); i++) {
-        Coin coin;
-        coin.nHeight = 1;
-        coin.fCoinBase = false;
-        coin.out.nValue = 1000;
-        coin.out.scriptPubKey = scriptPubKey;
-        coins.emplace_back(std::move(coin));
+        spent_outputs.emplace_back(CTxOut(1000, scriptPubKey));
     }
 
+    PrecomputedTransactionData txdata(tx, spent_outputs);
     for(uint32_t i = 0; i < mtx.vin.size(); i++) {
         std::vector<CScriptCheck> vChecks;
-        CScriptCheck check(coins[tx.vin[i].prevout.n].out, tx, i, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, false, &txdata);
+        CScriptCheck check(tx, i, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, false, txdata);
         vChecks.push_back(CScriptCheck());
         check.swap(vChecks.back());
         control.Add(vChecks);

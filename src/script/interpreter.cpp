@@ -1237,13 +1237,14 @@ uint256 GetSpentAmountsHash(const std::vector<CTxOut>& outputs_spent)
 } // namespace
 
 template <class T>
-void PrecomputedTransactionData::Init(const T& txTo, std::vector<CTxOut> spent_outputs)
+void PrecomputedTransactionData::Init(const T& txTo, std::vector<CTxOut> spent_outputs, bool calc_hash, bool amounts_spent_complete)
 {
+    assert(txTo.vin.size() == spent_outputs.size());
     m_spent_outputs = std::move(spent_outputs);
 
     if (ready) return;
     // Cache is calculated only for transactions with witness
-    if (txTo.HasWitness()) {
+    if (calc_hash) {
         m_prevouts_hash = GetPrevoutHash(txTo);
         hashPrevouts = HashAgain(m_prevouts_hash);
         m_sequences_hash = GetSequenceHash(txTo);
@@ -1252,7 +1253,7 @@ void PrecomputedTransactionData::Init(const T& txTo, std::vector<CTxOut> spent_o
         hashOutputs = HashAgain(m_outputs_hash);
         ready = true;
 
-        if (!m_spent_outputs.empty()) {
+        if (amounts_spent_complete) {
             m_amounts_spent_hash = GetSpentAmountsHash(m_spent_outputs);
             m_amounts_spent_ready = true;
         }
@@ -1260,39 +1261,49 @@ void PrecomputedTransactionData::Init(const T& txTo, std::vector<CTxOut> spent_o
 }
 
 template <class T>
-PrecomputedTransactionData::PrecomputedTransactionData(const T& txTo)
+PrecomputedTransactionData::PrecomputedTransactionData(const T& txTo, std::vector<CTxOut> spent_outputs)
 {
-    Init(txTo, {});
+    Init(txTo, spent_outputs, true, true);
+}
+
+template <class T>
+PrecomputedTransactionData::PrecomputedTransactionData(const T& txTo, unsigned int input_index, CAmount amount)
+{
+    std::vector<CTxOut> spent_outputs;
+    spent_outputs.resize(txTo.vin.size());
+    spent_outputs[input_index] = CTxOut(amount, CScript());
+    Init(txTo, spent_outputs, true, false);
 }
 
 // explicit instantiation
-template void PrecomputedTransactionData::Init(const CTransaction& txTo, std::vector<CTxOut> spent_outputs);
-template void PrecomputedTransactionData::Init(const CMutableTransaction& txTo, std::vector<CTxOut> spent_outputs);
-template PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& txTo);
-template PrecomputedTransactionData::PrecomputedTransactionData(const CMutableTransaction& txTo);
+template void PrecomputedTransactionData::Init(const CTransaction& txTo, std::vector<CTxOut> spent_outputs, bool calc_hash, bool amounts_spent_complete);
+template void PrecomputedTransactionData::Init(const CMutableTransaction& txTo, std::vector<CTxOut> spent_outputs, bool calc_hash, bool amounts_spent_complete);
+template PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& txTo, std::vector<CTxOut> spent_outputs);
+template PrecomputedTransactionData::PrecomputedTransactionData(const CMutableTransaction& txTo, std::vector<CTxOut> spent_outputs);
+template PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& txTo, unsigned int input_index, CAmount amount);
+template PrecomputedTransactionData::PrecomputedTransactionData(const CMutableTransaction& txTo, unsigned int input_index, CAmount amount);
 
 template <class T>
-uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache, const TapscriptData* tapscript_data)
+uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, SigVersion sigversion, const PrecomputedTransactionData& cache, const TapscriptData* tapscript_data)
 {
     assert(nIn < txTo.vin.size());
 
     if (sigversion == SigVersion::WITNESS_V0) {
+        assert(cache.ready);
         uint256 hashPrevouts;
         uint256 hashSequence;
         uint256 hashOutputs;
-        const bool cacheready = cache && cache->ready;
 
         if (!(nHashType & SIGHASH_ANYONECANPAY)) {
-            hashPrevouts = cacheready ? cache->hashPrevouts : HashAgain(GetPrevoutHash(txTo));
+            hashPrevouts = cache.hashPrevouts;
         }
 
         if (!(nHashType & SIGHASH_ANYONECANPAY) && (nHashType & 0x1f) != SIGHASH_SINGLE && (nHashType & 0x1f) != SIGHASH_NONE) {
-            hashSequence = cacheready ? cache->hashSequence : HashAgain(GetSequenceHash(txTo));
+            hashSequence = cache.hashSequence;
         }
 
-
         if ((nHashType & 0x1f) != SIGHASH_SINGLE && (nHashType & 0x1f) != SIGHASH_NONE) {
-            hashOutputs = cacheready ? cache->hashOutputs : HashAgain(GetOutputsHash(txTo));
+            hashOutputs = cache.hashOutputs;
         } else if ((nHashType & 0x1f) == SIGHASH_SINGLE && nIn < txTo.vout.size()) {
             CHashWriter ss(SER_GETHASH, 0);
             ss << txTo.vout[nIn];
@@ -1310,7 +1321,7 @@ uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn
         // may already be contain in hashSequence.
         ss << txTo.vin[nIn].prevout;
         ss << scriptCode;
-        ss << amount;
+        ss << cache.m_spent_outputs[nIn].nValue;
         ss << txTo.vin[nIn].nSequence;
         // Outputs (none/one/all, depending on flags)
         ss << hashOutputs;
@@ -1323,7 +1334,7 @@ uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn
     }
 
     if (sigversion == SigVersion::TAPROOT || sigversion == SigVersion::TAPSCRIPT) {
-        assert(cache && cache->ready && cache->m_amounts_spent_ready);
+        assert(cache.ready && cache.m_amounts_spent_ready);
         CHashWriter ss(SER_GETHASH, 0);
 
         // This part could be optimized by initialising SHA256 with a constant midstate.
@@ -1345,16 +1356,16 @@ uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn
         ss << txTo.nLockTime;
 
         if (!(hash_type & SIGHASH_ANYONECANPAY)) {
-            ss << cache->m_prevouts_hash;
-            ss << cache->m_amounts_spent_hash;
-            ss << cache->m_sequences_hash;
+            ss << cache.m_prevouts_hash;
+            ss << cache.m_amounts_spent_hash;
+            ss << cache.m_sequences_hash;
         }
         if ((hash_type & 3) != SIGHASH_SINGLE && (hash_type & 3) != SIGHASH_NONE) {
-            ss << cache->m_outputs_hash;
+            ss << cache.m_outputs_hash;
         }
 
         // Data about the input/prevout being spent
-        const CScript& scriptPubKey = cache->m_spent_outputs[nIn].scriptPubKey;
+        const CScript& scriptPubKey = cache.m_spent_outputs[nIn].scriptPubKey;
         unsigned char spend_type = scriptPubKey.IsPayToScriptHash() ? 1 : 0;
         const std::vector<std::vector<unsigned char> >* witstack = &txTo.vin[nIn].scriptWitness.stack;
         if (witstack && witstack->size() > 1 && witstack->back().size() > 0 && witstack->back()[0] == 0xff)
@@ -1367,7 +1378,7 @@ uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn
 
         if (hash_type & SIGHASH_ANYONECANPAY) {
             ss << txTo.vin[nIn].prevout;
-            ss << cache->m_spent_outputs[nIn].nValue;
+            ss << cache.m_spent_outputs[nIn].nValue;
             ss << txTo.vin[nIn].nSequence;
         } else {
             const uint16_t input_index = static_cast<uint16_t>(nIn);
@@ -1440,7 +1451,7 @@ bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned 
     int nHashType = vchSig.back();
     vchSig.pop_back();
 
-    uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, this->txdata);
+    uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, sigversion, txdata);
 
     if (!VerifySignature(vchSig, pubkey, sighash, SignatureType::ECDSA))
         return false;

@@ -134,10 +134,13 @@ struct PrecomputedTransactionData
     PrecomputedTransactionData() = default;
 
     template <class T>
-    void Init(const T& tx, std::vector<CTxOut> spent_outputs);
+    void Init(const T& tx, std::vector<CTxOut> spent_outputs, bool calc_hash, bool amounts_spent_complete);
 
     template <class T>
-    explicit PrecomputedTransactionData(const T& tx);
+    explicit PrecomputedTransactionData(const T& tx, std::vector<CTxOut> spent_outputs);
+
+    template <class T>
+    explicit PrecomputedTransactionData(const T& tx, unsigned int input_index, CAmount amount);
 };
 
 struct TapscriptData
@@ -159,7 +162,7 @@ static constexpr size_t WITNESS_V0_SCRIPTHASH_SIZE = 32;
 static constexpr size_t WITNESS_V0_KEYHASH_SIZE = 20;
 
 template <class T>
-uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr, const TapscriptData* tapscript_data = nullptr);
+uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn, int nHashType, SigVersion sigversion, const PrecomputedTransactionData& cache, const TapscriptData* tapscript_data = nullptr);
 
 class BaseSignatureChecker
 {
@@ -193,15 +196,14 @@ class GenericTransactionSignatureChecker : public BaseSignatureChecker
 private:
     const T* txTo;
     unsigned int nIn;
-    const CAmount amount;
-    const PrecomputedTransactionData* txdata;
+    const PrecomputedTransactionData txdata;
 
 protected:
     virtual bool VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& vchPubKey, const uint256& sighash, SignatureType sigtype) const;
 
 public:
-    GenericTransactionSignatureChecker(const T* txToIn, unsigned int nInIn, const CAmount& amountIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(nullptr) {}
-    GenericTransactionSignatureChecker(const T* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& txdataIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(&txdataIn) {}
+    GenericTransactionSignatureChecker(const T* txToIn, unsigned int nInIn, const CAmount& amountIn) : txTo(txToIn), nIn(nInIn), txdata(PrecomputedTransactionData(*txToIn, nInIn, amountIn)) {}
+    GenericTransactionSignatureChecker(const T* txToIn, unsigned int nInIn, const PrecomputedTransactionData& txdataIn) : txTo(txToIn), nIn(nInIn), txdata(txdataIn) {}
     bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override;
     bool CheckLockTime(const CScriptNum& nLockTime) const override;
     bool CheckSequence(const CScriptNum& nSequence) const override;
