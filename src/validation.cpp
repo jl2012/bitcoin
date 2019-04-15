@@ -449,6 +449,11 @@ bool CheckSequenceLocks(const CTxMemPool& pool, const CTransaction& tx, int flag
 // Returns the script flags which should be checked for a given block
 static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consensus::Params& chainparams);
 
+static bool IsTaprootEnabled(const CBlockIndex* pindex, const Consensus::Params& params)
+{
+    return (IsWitnessEnabled(pindex, params) && pindex->nHeight >= 500);
+}
+
 static void LimitMempoolSize(CTxMemPool& pool, size_t limit, unsigned long age) {
     int expired = pool.Expire(GetTime() - age);
     if (expired != 0) {
@@ -1765,6 +1770,10 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consens
 
     if (IsNullDummyEnabled(pindex->pprev, consensusparams)) {
         flags |= SCRIPT_VERIFY_NULLDUMMY;
+    }
+
+    if (IsTaprootEnabled(pindex->pprev, consensusparams)) {
+        flags |= SCRIPT_VERIFY_TAPROOT;
     }
 
     return flags;
