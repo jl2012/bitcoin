@@ -5,8 +5,8 @@
 # Test taproot softfork.
 
 from test_framework.blocktools import create_coinbase, create_block, create_transaction, add_witness_commitment
-from test_framework.messages import CTransaction, CTxIn, CTxOut, COutPoint, CTxInWitness, COIN
-from test_framework.script import CScript, TaprootSignatureHash, taproot_construct, GetP2SH, OP_1, OP_CHECKSIG, OP_IF, OP_CODESEPARATOR, OP_ELSE, OP_ENDIF, OP_DROP, taproot_key_sign, SIGHASH_SINGLE
+from test_framework.messages import CTransaction, CTxIn, CTxOut, COutPoint, CTxInWitness
+from test_framework.script import CScript, TaprootSignatureHash, taproot_construct, GetP2SH, OP_0, OP_CHECKSIG, OP_IF, OP_CODESEPARATOR, OP_ELSE, OP_ENDIF, OP_DROP, DEFAULT_TAPSCRIPT_VER, SIGHASH_SINGLE, is_op_success, CScriptOp, OP_RETURN, OP_VERIF, OP_RESERVED, OP_1NEGATE
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error, hex_str_to_bytes
 from test_framework.key import ECKey
@@ -15,6 +15,7 @@ from binascii import hexlify
 from hashlib import sha256
 from io import BytesIO
 import random
+import struct
 
 EMPTYWITNESS_ERROR = "non-mandatory-script-verify-flag (Witness program was passed an empty witness) (code 64)"
 INVALIDKEYPATHSIG_ERROR = "non-mandatory-script-verify-flag (Invalid signature for taproot key path spending) (code 64)"
@@ -33,6 +34,65 @@ def get_taproot_bech32(info):
 
 def get_taproot_p2sh(info):
     return script_to_p2sh(info[0])
+
+def random_op_success():
+    ret = 0
+    while (not is_op_success(ret)):
+        ret = random.randint(0x50, 0xfe)
+    return CScriptOp(ret)
+
+def random_unknown_tapscript_ver():
+    ret = DEFAULT_TAPSCRIPT_VER
+    while (ret == DEFAULT_TAPSCRIPT_VER):
+        ret = random.randint(0, 127) * 2
+    return ret
+
+def random_bytes(n):
+    return bytes(random.getrandbits(8) for i in range(n))
+
+def random_script(size, no_success = True):
+    ret = bytes()
+    while (len(ret) < size):
+        remain = size - len(ret)
+        opcode = random.randrange(256)
+        while (no_success and is_op_success(opcode)):
+            opcode = random.randrange(256)
+        if opcode == 0 or opcode >= OP_1NEGATE:
+            ret += bytes([opcode])
+        elif opcode <= 75 and opcode <= remain - 1:
+            ret += bytes([opcode]) + random_bytes(opcode)
+        elif opcode == 76 and remain >= 2:
+            pushsize = random.randint(0, min(0xff, remain - 2))
+            ret += bytes([opcode]) + bytes([pushsize]) + random_bytes(pushsize)
+        elif opcode == 77 and remain >= 3:
+            pushsize = random.randint(0, min(0xffff, remain - 3))
+            ret += bytes([opcode]) + struct.pack(b'<H', pushsize) + random_bytes(pushsize)
+        elif opcode == 78 and remain >= 5:
+            pushsize = random.randint(0, min(0xffffffff, remain - 5))
+            ret += bytes([opcode]) + struct.pack(b'<I', pushsize) + random_bytes(pushsize)
+    assert len(ret) == size
+    return ret
+
+def random_invalid_push(size):
+    assert size > 0
+    ret = bytes()
+    opcode = 78
+    if size <= 75:
+        opcode = random.randint(75, 78)
+    elif size <= 255:
+        opcode = random.randint(76, 78)
+    elif size <= 0xffff:
+        opcode = random.randint(77, 78)
+    if opcode == 75:
+        ret = bytes([size]) + random_bytes(size - 1)
+    elif opcode == 76:
+        ret = bytes([opcode]) + bytes([size]) + random_bytes(size - 2)
+    elif opcode == 77:
+        ret = bytes([opcode]) + struct.pack(b'<H', size) + random_bytes(max(0, size - 3))
+    else:
+        ret = bytes([opcode]) + struct.pack(b'<I', size) + random_bytes(max(0, size - 5))
+    assert len(ret) >= size
+    return ret[:size]
 
 def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, hashtype=0, prefix=[], suffix=[], script=None, pos=-1, damage_sighash=False):
     ht = hashtype
@@ -65,6 +125,23 @@ def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, 
     if p2sh:
         tx.vin[input_index].scriptSig = CScript([info[0]])
 
+def spend_alwaysvalid(tx, input_index, info, p2sh, script, annex=None):
+    if isinstance(script, tuple):
+        version, script = script
+    ret = [script, info[2][script]]
+    if annex is not None:
+        ret += [annex]
+    # Randomly add input witness
+    if random.choice([True, False]):
+        maxsize = random.choice([520, 1040])
+        for i in range(random.randint(1, 100)):
+            size = random.randint(0, maxsize)
+            ret = [random_bytes(size)] + ret
+    tx.wit.vtxinwit[input_index].scriptWitness.stack = ret
+    # Construct P2SH redeemscript
+    if p2sh:
+        tx.vin[input_index].scriptSig = CScript([info[0]])
+
 def spender_sighash_mutation(spenders, info, p2sh, comment, standard=True, **kwargs):
     spk = info[0]
     addr = get_taproot_bech32(info)
@@ -73,7 +150,17 @@ def spender_sighash_mutation(spenders, info, p2sh, comment, standard=True, **kwa
         addr = get_taproot_p2sh(info)
     def fn(t, i, u, v):
         return spend_single_sig(t, i, u, damage_sighash=not v, info=info, p2sh=p2sh, **kwargs)
-    spenders.append((spk, addr, comment, standard, fn))
+    spenders.append((spk, addr, comment, standard, False, fn))
+
+def spender_alwaysvalid(spenders, info, p2sh, comment, **kwargs):
+    spk = info[0]
+    addr = get_taproot_bech32(info)
+    if p2sh:
+        spk = GetP2SH(spk)
+        addr = get_taproot_p2sh(info)
+    def fn(t, i, u, v):
+        return spend_alwaysvalid(t, i, info=info, p2sh=p2sh, **kwargs)
+    spenders.append((spk, addr, comment, False, True, fn))
 
 class TAPROOTTest(BitcoinTestFramework):
 
@@ -205,7 +292,7 @@ class TAPROOTTest(BitcoinTestFramework):
                     tx.wit.vtxinwit[i] = CTxInWitness()
                 # Fill inputs/witnesses
                 for i in range(inputs):
-                    fn = input_utxos[i][2][4]
+                    fn = input_utxos[i][2][5]
                     fn(tx, i, [utxo[1] for utxo in input_utxos], i != fail_input)
                 # If valid, submit to mempool to check standardness
                 if fail_input == inputs:
@@ -215,6 +302,9 @@ class TAPROOTTest(BitcoinTestFramework):
                         assert(self.nodes[0].getmempoolentry(tx.hash) is not None)
                     else:
                         assert_raises_rpc_error(-26, None, self.nodes[0].sendrawtransaction, tx.serialize().hex(), 0)
+                # It is not possible to make always-valid scripts fail. Skip failing block submission test.
+                elif input_utxos[fail_input][2][4]:
+                    continue
                 # Submit in a block
                 tx.rehash()
                 msg = ','.join(utxo[2][2] + ("*" if n == fail_input else "") for n, utxo in enumerate(input_utxos))
@@ -226,14 +316,14 @@ class TAPROOTTest(BitcoinTestFramework):
 
         # Sighash mutation tests
         for p2sh in [False, True]:
-            for hashtype in VALID_SIGHASHES:
-                random_annex = bytes([0xff] + [random.getrandbits(8) for i in range(random.randrange(0, 5))])
-                for annex in [None, random_annex]:
-                    standard = annex is None
-                    sec1, sec2 = ECKey(), ECKey()
-                    sec1.generate()
-                    sec2.generate()
-                    pub1, pub2 = sec1.get_pubkey(), sec2.get_pubkey()
+            random_annex = bytes([0xff] + [random.getrandbits(8) for i in range(random.randrange(0, 5))])
+            for annex in [None, random_annex]:
+                standard = annex is None
+                sec1, sec2 = ECKey(), ECKey()
+                sec1.generate()
+                sec2.generate()
+                pub1, pub2 = sec1.get_pubkey(), sec2.get_pubkey()
+                for hashtype in VALID_SIGHASHES:
                     # Pure pubkey
                     info = taproot_construct(pub1, [])
                     spender_sighash_mutation(spenders, info, p2sh, "sighash/pk#pk", key=sec1, hashtype=hashtype, annex=annex, standard=standard)
@@ -254,6 +344,24 @@ class TAPROOTTest(BitcoinTestFramework):
                     spender_sighash_mutation(spenders, info, p2sh, "sighash/codesep#s1", script=scripts[1], key=sec2, hashtype=hashtype, annex=annex, pos=0, standard=standard)
                     spender_sighash_mutation(spenders, info, p2sh, "sighash/codesep#s2a", script=scripts[2], key=sec1, hashtype=hashtype, annex=annex, pos=3, suffix=[bytes([1])], standard=standard)
                     spender_sighash_mutation(spenders, info, p2sh, "sighash/codesep#s2b", script=scripts[2], key=sec2, hashtype=hashtype, annex=annex, pos=6, suffix=[bytes([])], standard=standard)
+
+                # OP_SUCCESSx and unknown tapscript versions
+                scripts = [
+                    CScript([random_op_success()]),
+                    CScript([OP_0, OP_IF, random_op_success(), OP_ENDIF, OP_RETURN]),
+                    CScript([random_op_success(), OP_VERIF]),
+                    CScript(random_script(10000) + bytes([random_op_success()]) + random_invalid_push(random.randint(1,1))),
+                    (random_unknown_tapscript_ver(), CScript([OP_RETURN])),
+                    (random_unknown_tapscript_ver(), CScript(random_script(10000) + random_invalid_push(random.randint(1,1)))),
+                ]
+                info = taproot_construct(pub1, scripts)
+                spender_sighash_mutation(spenders, info, p2sh, "sighash/alwaysvalid#pk", key=sec1, hashtype=hashtype, annex=annex, standard=standard)
+                spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/success", script=scripts[0], annex=annex)
+                spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/success#if", script=scripts[1], annex=annex)
+                spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/success#verif", script=scripts[2], annex=annex)
+                spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/success#10000+", script=scripts[3], annex=annex)
+                spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#return", script=scripts[4], annex=annex)
+                spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#10000+", script=scripts[5], annex=annex)
 
         # Run all tests once with individual inputs, once with groups of inputs
         self.test_spenders(spenders, input_counts=[1])
