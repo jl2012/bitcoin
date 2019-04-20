@@ -44,7 +44,7 @@ def random_op_success():
 def random_unknown_tapscript_ver():
     ret = DEFAULT_TAPSCRIPT_VER
     while (ret == DEFAULT_TAPSCRIPT_VER):
-        ret = random.randint(0, 127) * 2
+        ret = random.randint(0, 126) * 2
     return ret
 
 def random_bytes(n):
@@ -327,7 +327,7 @@ class TAPROOTTest(BitcoinTestFramework):
 
         # Sighash mutation tests
         for p2sh in [False, True]:
-            random_annex = bytes([0xff] + [random.getrandbits(8) for i in range(random.randrange(0, 5))])
+            random_annex = bytes([0xff]) + random_bytes(random.randrange(0, 5))
             for annex in [None, random_annex]:
                 standard = annex is None
                 sec1, sec2 = ECKey(), ECKey()
@@ -364,15 +364,21 @@ class TAPROOTTest(BitcoinTestFramework):
                     CScript(random_script(10000) + bytes([random_op_success()]) + random_invalid_push(random.randint(1,1))),
                     (random_unknown_tapscript_ver(), CScript([OP_RETURN])),
                     (random_unknown_tapscript_ver(), CScript(random_script(10000) + random_invalid_push(random.randint(1,1)))),
+                    (0xfe, CScript()),
                 ]
                 info = taproot_construct(pub1, scripts)
-                spender_sighash_mutation(spenders, info, p2sh, "sighash/alwaysvalid#pk", key=sec1, hashtype=hashtype, annex=annex, standard=standard)
+                spender_sighash_mutation(spenders, info, p2sh, "alwaysvalid/pk", key=sec1, hashtype=random.choice(VALID_SIGHASHES), annex=annex, standard=standard)
                 spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/success", script=scripts[0], annex=annex)
                 spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/success#if", script=scripts[1], annex=annex)
                 spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/success#verif", script=scripts[2], annex=annex)
                 spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/success#10000+", script=scripts[3], annex=annex)
                 spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#return", script=scripts[4], annex=annex)
                 spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#10000+", script=scripts[5], annex=annex)
+                if (info[2][scripts[6][1]][0] == 0xff):
+                    # Annex is mandatory for tapscript version 0xff
+                    spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#ff", script=scripts[6], annex=random_annex)
+                else:
+                    spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#fe", script=scripts[6], annex=annex)
 
         # Run all tests once with individual inputs, once with groups of inputs
         self.test_spenders(spenders, input_counts=[1])

@@ -763,7 +763,9 @@ def TaprootSignatureHash(txTo, spent_utxos, hash_type, input_index = 0, scriptpa
 def GetVersionTaggedPubKey(pubkey, version):
     assert pubkey.is_compressed
     assert pubkey.is_valid
-    assert version >= 0 and version < 255 and not (version & 1)
+    # When the version 0xfe is used, the control block may become indistinguishable from annex.
+    # In such case, use of annex becomes mandatory.
+    assert version >= 0 and version < 0xff and not (version & 1)
     data = pubkey.get_bytes()
     return bytes([data[0] & 1 | version]) + data[1:]
 
