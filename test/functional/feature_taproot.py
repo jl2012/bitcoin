@@ -105,6 +105,9 @@ def random_checksig_style(pubkey):
         ret = CScript([pubkey, opcode])
     return bytes(ret)
 
+def damage_bytes(b):
+    return (int.from_bytes(b, 'big') ^ (1 << random.randrange(len(b)*8))).to_bytes(len(b), 'big')
+
 def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, hashtype=0, prefix=[], suffix=[], script=None, pos=-1, damage_sighash=False):
     ht = hashtype
     # Taproot key path spend: tweak key
@@ -120,7 +123,7 @@ def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, 
     else:
         sighash = TaprootSignatureHash(tx, spent_utxos, ht, input_index, scriptpath = False, annex = annex)
     if damage_sighash:
-        sighash = (int.from_bytes(sighash, 'big') ^ (1 << random.randrange(256))).to_bytes(32, 'big')
+        sighash = damage_bytes(sighash)
     # Compute signature
     sig = key.sign_schnorr(sighash)
     if hashtype > 0:
@@ -136,10 +139,15 @@ def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, 
     if p2sh:
         tx.vin[input_index].scriptSig = CScript([info[0]])
 
-def spend_alwaysvalid(tx, input_index, info, p2sh, script, annex=None):
+def spend_alwaysvalid(tx, input_index, info, p2sh, script, annex=None, damage_control=False):
     if isinstance(script, tuple):
         version, script = script
     ret = [script, info[2][script]]
+    if damage_control:
+        ver_ff = (ret[1][0] == 0xff)
+        ret[1] = damage_bytes(ret[1])
+        while annex is None and ret[1][0] == 0xff and not ver_ff:
+            ret[1] = damage_bytes(ret[1])
     if annex is not None:
         ret += [annex]
     # Randomly add input witness
@@ -161,7 +169,7 @@ def spender_sighash_mutation(spenders, info, p2sh, comment, standard=True, **kwa
         addr = get_taproot_p2sh(info)
     def fn(t, i, u, v):
         return spend_single_sig(t, i, u, damage_sighash=not v, info=info, p2sh=p2sh, **kwargs)
-    spenders.append((spk, addr, comment, standard, False, fn))
+    spenders.append((spk, addr, comment, standard, fn))
 
 def spender_alwaysvalid(spenders, info, p2sh, comment, **kwargs):
     spk = info[0]
@@ -170,8 +178,8 @@ def spender_alwaysvalid(spenders, info, p2sh, comment, **kwargs):
         spk = GetP2SH(spk)
         addr = get_taproot_p2sh(info)
     def fn(t, i, u, v):
-        return spend_alwaysvalid(t, i, info=info, p2sh=p2sh, **kwargs)
-    spenders.append((spk, addr, comment, False, True, fn))
+        return spend_alwaysvalid(t, i, damage_control=not v, info=info, p2sh=p2sh, **kwargs)
+    spenders.append((spk, addr, comment, False, fn))
 
 class TAPROOTTest(BitcoinTestFramework):
 
@@ -303,7 +311,7 @@ class TAPROOTTest(BitcoinTestFramework):
                     tx.wit.vtxinwit[i] = CTxInWitness()
                 # Fill inputs/witnesses
                 for i in range(inputs):
-                    fn = input_utxos[i][2][5]
+                    fn = input_utxos[i][2][4]
                     fn(tx, i, [utxo[1] for utxo in input_utxos], i != fail_input)
                 # If valid, submit to mempool to check standardness
                 if fail_input == inputs:
@@ -313,9 +321,6 @@ class TAPROOTTest(BitcoinTestFramework):
                         assert(self.nodes[0].getmempoolentry(tx.hash) is not None)
                     else:
                         assert_raises_rpc_error(-26, None, self.nodes[0].sendrawtransaction, tx.serialize().hex(), 0)
-                # It is not possible to make always-valid scripts fail. Skip failing block submission test.
-                elif input_utxos[fail_input][2][4]:
-                    continue
                 # Submit in a block
                 tx.rehash()
                 msg = ','.join(utxo[2][2] + ("*" if n == fail_input else "") for n, utxo in enumerate(input_utxos))
