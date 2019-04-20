@@ -6,7 +6,7 @@
 
 from test_framework.blocktools import create_coinbase, create_block, create_transaction, add_witness_commitment
 from test_framework.messages import CTransaction, CTxIn, CTxOut, COutPoint, CTxInWitness
-from test_framework.script import CScript, TaprootSignatureHash, taproot_construct, GetP2SH, OP_0, OP_CHECKSIG, OP_IF, OP_CODESEPARATOR, OP_ELSE, OP_ENDIF, OP_DROP, DEFAULT_TAPSCRIPT_VER, SIGHASH_SINGLE, is_op_success, CScriptOp, OP_RETURN, OP_VERIF, OP_RESERVED, OP_1NEGATE
+from test_framework.script import CScript, TaprootSignatureHash, taproot_construct, GetP2SH, OP_0, OP_1, OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKSIGADD, OP_IF, OP_CODESEPARATOR, OP_ELSE, OP_ENDIF, OP_DROP, DEFAULT_TAPSCRIPT_VER, SIGHASH_SINGLE, is_op_success, CScriptOp, OP_RETURN, OP_VERIF, OP_RESERVED, OP_1NEGATE, OP_EQUAL
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error, hex_str_to_bytes
 from test_framework.key import ECKey
@@ -93,6 +93,17 @@ def random_invalid_push(size):
         ret = bytes([opcode]) + struct.pack(b'<I', size) + random_bytes(max(0, size - 5))
     assert len(ret) >= size
     return ret[:size]
+
+def random_checksig_style(pubkey):
+    opcode = random.choice([OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKSIGADD])
+    if (opcode == OP_CHECKSIGVERIFY):
+        ret = CScript([pubkey, opcode, OP_1])
+    elif (opcode == OP_CHECKSIGADD):
+        num = random.choice([0, 0x7fffffff, -0x7fffffff])
+        ret = CScript([num, pubkey, opcode, num+1, OP_EQUAL])
+    else:
+        ret = CScript([pubkey, opcode])
+    return bytes(ret)
 
 def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, hashtype=0, prefix=[], suffix=[], script=None, pos=-1, damage_sighash=False):
     ht = hashtype
@@ -328,14 +339,14 @@ class TAPROOTTest(BitcoinTestFramework):
                     info = taproot_construct(pub1, [])
                     spender_sighash_mutation(spenders, info, p2sh, "sighash/pk#pk", key=sec1, hashtype=hashtype, annex=annex, standard=standard)
                     # Pubkey/P2PK script combination
-                    scripts = [CScript([pub2.get_bytes(), OP_CHECKSIG])]
+                    scripts = [CScript(random_checksig_style(pub2.get_bytes()))]
                     info = taproot_construct(pub1, scripts)
                     spender_sighash_mutation(spenders, info, p2sh, "sighash/p2pk#pk", key=sec1, hashtype=hashtype, annex=annex, standard=standard)
                     spender_sighash_mutation(spenders, info, p2sh, "sighash/p2pk#s0", script=scripts[0], key=sec2, hashtype=hashtype, annex=annex, standard=standard)
                     # More complex script structure
                     scripts = [
-                        CScript([pub2.get_bytes(), OP_CHECKSIG, OP_CODESEPARATOR]), # codesep after checksig
-                        CScript([OP_CODESEPARATOR, pub2.get_bytes(), OP_CHECKSIG]), # codesep before checksig
+                        CScript(random_checksig_style(pub2.get_bytes()) + bytes([OP_CODESEPARATOR])), # codesep after checksig
+                        CScript(bytes([OP_CODESEPARATOR]) + random_checksig_style(pub2.get_bytes())), # codesep before checksig
                         CScript([bytes([1,2,3]), OP_DROP, OP_IF, OP_CODESEPARATOR, pub1.get_bytes(), OP_ELSE, OP_CODESEPARATOR, pub2.get_bytes(), OP_ENDIF, OP_CHECKSIG]), # branch dependent codesep
                     ]
                     info = taproot_construct(pub1, scripts)
