@@ -314,8 +314,8 @@ class TAPROOTTest(BitcoinTestFramework):
         self.lastblocktime = block['time']
         while len(utxos):
             tx = CTransaction()
-            tx.nVersion = random.choice([1, 2])
-            min_sequence = (tx.nVersion != 1) * 0x80000000 # The minimum sequence number to disable relative locktime
+            tx.nVersion = random.choice([1, 2, random.randint(-0x80000000,0x7fffffff)])
+            min_sequence = (tx.nVersion != 1 and tx.nVersion != 0) * 0x80000000 # The minimum sequence number to disable relative locktime
             if random.choice([True, False]):
                 tx.nLockTime = random.randrange(LOCKTIME_THRESHOLD, self.lastblocktime - 7200) # all absolute locktimes in the past
             else:
@@ -362,7 +362,7 @@ class TAPROOTTest(BitcoinTestFramework):
                     fn(tx, i, [utxo[1] for utxo in input_utxos], i != fail_input)
                 # If valid, submit to mempool to check standardness
                 if fail_input == inputs:
-                    standard = all(utxo[2][3] for utxo in input_utxos)
+                    standard = all(utxo[2][3] for utxo in input_utxos) and tx.nVersion >= 1 and tx.nVersion <= 2
                     if standard:
                         self.nodes[0].sendrawtransaction(tx.serialize().hex(), 0)
                         assert(self.nodes[0].getmempoolentry(tx.hash) is not None)
