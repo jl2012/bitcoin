@@ -21,6 +21,9 @@ EMPTYWITNESS_ERROR = "non-mandatory-script-verify-flag (Witness program was pass
 INVALIDKEYPATHSIG_ERROR = "non-mandatory-script-verify-flag (Invalid signature for taproot key path spending) (code 64)"
 UNKNOWNWITNESS_ERROR = "non-mandatory-script-verify-flag (Witness version reserved for soft-fork upgrades) (code 64)"
 
+DUST_LIMIT = 600
+MIN_FEE = 5000
+
 def tx_from_hex(hexstring):
     tx = CTransaction()
     f = BytesIO(hex_str_to_bytes(hexstring))
@@ -293,16 +296,23 @@ class TAPROOTTest(BitcoinTestFramework):
                     break
             input_utxos = utxos[-inputs:]
             utxos = utxos[:-inputs]
-            in_value = sum(utxo[1].nValue for utxo in input_utxos) - random.randrange(10000, 20000) # 10000-20000 sat fee
+            fee = random.randrange(MIN_FEE * 2, MIN_FEE * 4) # 10000-20000 sat fee
+            in_value = sum(utxo[1].nValue for utxo in input_utxos) - fee
             tx.vin = [CTxIn(outpoint = input_utxos[i][0], nSequence = random.randint(min_sequence, 0xffffffff)) for i in range(inputs)]
             tx.wit.vtxinwit = [CTxInWitness() for i in range(inputs)]
             self.log.info("Test: %s" % (", ".join(utxo[2][2] for utxo in input_utxos)))
 
             # Add 1 to 4 outputs
             outputs = random.choice([1,2,3,4])
+            assert in_value >= 0 and fee - outputs * DUST_LIMIT >= MIN_FEE
             for i in range(outputs):
                 tx.vout.append(CTxOut())
-                tx.vout[-1].nValue = random.randrange(in_value) if i < outputs - 1 else in_value
+                if in_value <= DUST_LIMIT:
+                    tx.vout[-1].nValue = DUST_LIMIT
+                elif i < outputs - 1:
+                    tx.vout[-1].nValue = in_value
+                else:
+                    tx.vout[-1].nValue = random.randint(DUST_LIMIT, in_value)
                 in_value -= tx.vout[-1].nValue
                 tx.vout[-1].scriptPubKey = random.choice(host_spks)
 
