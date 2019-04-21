@@ -113,22 +113,19 @@ def damage_bytes(b):
 
 def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, hashtype=0, prefix=[], suffix=[], script=None, pos=-1, damage=False):
     ht = hashtype
-    damage_sighash, damage_sig, damage_hashtype = False, False, False
-    if (damage):
-        '''
-        * With 25% chance, we bit flip the sighash
-        * With 25% chance, we bit flip the signature
-        * If the hashtype is 0:
-        -- With 25% chance, we append a 0 to the signature
-        -- With 25% chance, we append a random value of 1-255 to the signature
-        * If the hashtype is not 0:
-        -- With 25% chance, we do not append hashtype to the signature
-        -- With 25% chance, we append a random incorrect value of 0-255 to the signature
-        '''
-        damage_hashtype = random.choice([True, False])
-        if not damage_hashtype:
-            damage_sighash = random.choice([True, False])
-            damage_sig = not damage_sighash
+
+    damage_type = random.randrange(5) if damage else -1
+    '''
+    * 0. bit flip the sighash
+    * 1. bit flip the signature
+    * If the expected hashtype is 0:
+    -- 2. append a 0 to the signature
+    -- 3. append a random value of 1-255 to the signature
+    * If the expected hashtype is not 0:
+    -- 2. do not append hashtype to the signature
+    -- 3. append a random incorrect value of 0-255 to the signature
+    * 4. extra witness element
+    '''
 
     # Taproot key path spend: tweak key
     if script is None:
@@ -142,20 +139,20 @@ def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, 
         sighash = TaprootSignatureHash(tx, spent_utxos, ht, input_index, scriptpath = True, tapscript = script, codeseparator_pos = pos, annex = annex)
     else:
         sighash = TaprootSignatureHash(tx, spent_utxos, ht, input_index, scriptpath = False, annex = annex)
-    if damage_sighash:
+    if damage_type == 0:
         sighash = damage_bytes(sighash)
     # Compute signature
     sig = key.sign_schnorr(sighash)
-    if damage_sig:
+    if damage_type == 1:
         sig = damage_bytes(sig)
-    if damage_hashtype:
+    if damage_type == 2:
+        if ht == 0:
+            sig += bytes([0])
+    elif damage_type == 3:
         random_ht = ht
         while random_ht == ht:
             random_ht = random.randrange(256)
-        if ht == 0:
-            sig += bytes([random.choice([0, random_ht])])
-        elif random.choice([True, False]):
-            sig += bytes([random_ht])
+        sig += bytes([random_ht])
     elif ht > 0:
         sig += bytes([ht])
     # Construct witness
@@ -164,6 +161,8 @@ def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, 
         ret += [script, info[2][script]]
     if annex is not None:
         ret += [annex]
+    if damage_type == 4:
+        ret = [random_bytes(random.randrange(5))] + ret
     tx.wit.vtxinwit[input_index].scriptWitness.stack = ret
     # Construct P2SH redeemscript
     if p2sh:
