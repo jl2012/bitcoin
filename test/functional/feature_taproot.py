@@ -6,7 +6,7 @@
 
 from test_framework.blocktools import create_coinbase, create_block, create_transaction, add_witness_commitment
 from test_framework.messages import CTransaction, CTxIn, CTxOut, COutPoint, CTxInWitness
-from test_framework.script import CScript, TaprootSignatureHash, taproot_construct, GetP2SH, OP_0, OP_1, OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKSIGADD, OP_IF, OP_CODESEPARATOR, OP_ELSE, OP_ENDIF, OP_DROP, DEFAULT_TAPSCRIPT_VER, SIGHASH_SINGLE, is_op_success, CScriptOp, OP_RETURN, OP_VERIF, OP_RESERVED, OP_1NEGATE, OP_EQUAL
+from test_framework.script import CScript, TaprootSignatureHash, taproot_construct, GetP2SH, OP_0, OP_1, OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKSIGADD, OP_IF, OP_CODESEPARATOR, OP_ELSE, OP_ENDIF, OP_DROP, DEFAULT_TAPSCRIPT_VER, SIGHASH_SINGLE, is_op_success, CScriptOp, OP_RETURN, OP_VERIF, OP_RESERVED, OP_1NEGATE, OP_EQUAL, MAX_SCRIPT_ELEMENT_SIZE, LOCKTIME_THRESHOLD
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error, hex_str_to_bytes
 from test_framework.key import ECKey
@@ -152,10 +152,8 @@ def spend_alwaysvalid(tx, input_index, info, p2sh, script, annex=None, damage_co
         ret += [annex]
     # Randomly add input witness
     if random.choice([True, False]):
-        maxsize = random.choice([520, 1040])
-        for i in range(random.randint(1, 100)):
-            size = random.randint(0, maxsize)
-            ret = [random_bytes(size)] + ret
+        for i in range(random.randint(1, 10)):
+            ret = [random_bytes(random.randint(0, MAX_SCRIPT_ELEMENT_SIZE*2))] + ret
     tx.wit.vtxinwit[input_index].scriptWitness.stack = ret
     # Construct P2SH redeemscript
     if p2sh:
@@ -279,7 +277,12 @@ class TAPROOTTest(BitcoinTestFramework):
         self.lastblocktime = block['time']
         while len(utxos):
             tx = CTransaction()
-            tx.nLockTime = random.randrange(500000000, 1000000000) # all absolute locktimes in the past
+            tx.nVersion = random.choice([1, 2])
+            min_sequence = (tx.nVersion != 1) * 0x80000000 # The minimum sequence number to disable relative locktime
+            if random.choice([True, False]):
+                tx.nLockTime = random.randrange(LOCKTIME_THRESHOLD, self.lastblocktime - 7200) # all absolute locktimes in the past
+            else:
+                tx.nLockTime = random.randrange(self.lastblockheight+1) # all block heights in the past
 
             # Pick 1 to 4 UTXOs to construct transaction inputs
             acceptable_input_counts = [cnt for cnt in input_counts if cnt <= len(utxos)]
@@ -291,7 +294,7 @@ class TAPROOTTest(BitcoinTestFramework):
             input_utxos = utxos[-inputs:]
             utxos = utxos[:-inputs]
             in_value = sum(utxo[1].nValue for utxo in input_utxos) - random.randrange(10000, 20000) # 10000-20000 sat fee
-            tx.vin = [CTxIn(outpoint = input_utxos[i][0], nSequence = random.randrange(500000000, 1000000000)) for i in range(inputs)]
+            tx.vin = [CTxIn(outpoint = input_utxos[i][0], nSequence = random.randint(min_sequence, 0xffffffff)) for i in range(inputs)]
             tx.wit.vtxinwit = [CTxInWitness() for i in range(inputs)]
             self.log.info("Test: %s" % (", ".join(utxo[2][2] for utxo in input_utxos)))
 
@@ -330,7 +333,6 @@ class TAPROOTTest(BitcoinTestFramework):
         VALID_SIGHASHES = [0,1,2,3,0x81,0x82,0x83]
         spenders = []
 
-        # Sighash mutation tests
         for p2sh in [False, True]:
             random_annex = bytes([0xff]) + random_bytes(random.randrange(0, 5))
             for annex in [None, random_annex]:
@@ -339,6 +341,8 @@ class TAPROOTTest(BitcoinTestFramework):
                 sec1.generate()
                 sec2.generate()
                 pub1, pub2 = sec1.get_pubkey(), sec2.get_pubkey()
+
+                # Sighash mutation tests
                 for hashtype in VALID_SIGHASHES:
                     # Pure pubkey
                     info = taproot_construct(pub1, [])
