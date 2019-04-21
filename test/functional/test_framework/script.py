@@ -17,6 +17,7 @@ from .bignum import bn2vch
 
 MAX_SCRIPT_ELEMENT_SIZE = 520
 LOCKTIME_THRESHOLD = 500000000
+ANNEX_TAG = 0xff
 
 OPCODE_NAMES = {}
 
@@ -736,7 +737,7 @@ def TaprootSignatureHash(txTo, spent_utxos, hash_type, input_index = 0, scriptpa
     else:
         assert(IsPayToTaproot(spk))
     if annex is not None:
-        assert (annex[0] == 0xff)
+        assert (annex[0] == ANNEX_TAG)
         spend_type |= 2
     if (scriptpath):
         assert (len(tapscript) > 0)
@@ -827,7 +828,7 @@ def taproot_key_sign(info, privkey, txTo, spent_utxos, hash_type, input_index, p
     assert(script[2:] == GetVersionTaggedPubKey(tweaked_privkey.get_pubkey(), TAPROOT_VER))
 
     if annex is not None:
-        assert(annex[0] == 0xff)
+        assert(annex[0] == ANNEX_TAG)
         ret += [annex]
 
     while (len(txTo.wit.vtxinwit) <= input_index):
@@ -863,7 +864,7 @@ def taproot_script_sign(info, script, inputs, annex=None):
     assert(spk[2:] == GetVersionTaggedPubKey(Q, TAPROOT_VER))
 
     if annex is not None:
-        assert(annex[0] == 0xff)
+        assert(annex[0] == ANNEX_TAG)
         ret += [annex]
     return ret
 

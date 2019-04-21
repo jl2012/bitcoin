@@ -6,7 +6,7 @@
 
 from test_framework.blocktools import create_coinbase, create_block, create_transaction, add_witness_commitment
 from test_framework.messages import CTransaction, CTxIn, CTxOut, COutPoint, CTxInWitness
-from test_framework.script import CScript, TaprootSignatureHash, taproot_construct, GetP2SH, OP_0, OP_1, OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKSIGADD, OP_IF, OP_CODESEPARATOR, OP_ELSE, OP_ENDIF, OP_DROP, DEFAULT_TAPSCRIPT_VER, SIGHASH_SINGLE, is_op_success, CScriptOp, OP_RETURN, OP_VERIF, OP_RESERVED, OP_1NEGATE, OP_EQUAL, MAX_SCRIPT_ELEMENT_SIZE, LOCKTIME_THRESHOLD
+from test_framework.script import CScript, TaprootSignatureHash, taproot_construct, GetP2SH, OP_0, OP_1, OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKSIGADD, OP_IF, OP_CODESEPARATOR, OP_ELSE, OP_ENDIF, OP_DROP, DEFAULT_TAPSCRIPT_VER, SIGHASH_SINGLE, is_op_success, CScriptOp, OP_RETURN, OP_VERIF, OP_RESERVED, OP_1NEGATE, OP_EQUAL, MAX_SCRIPT_ELEMENT_SIZE, LOCKTIME_THRESHOLD, ANNEX_TAG
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error, hex_str_to_bytes
 from test_framework.key import ECKey
@@ -178,9 +178,9 @@ def spend_alwaysvalid(tx, input_index, info, p2sh, script, annex=None, damage=Fa
         if random.choice([True, False]) or len(ret[0]) == 0:
             # Annex is always required for tapscript version 0xff
             # Unless the original version is 0xff, we couldn't convert it to 0xff without using annex
-            ver_ff = (ret[1][0] == 0xff)
+            ver_annex = (ret[1][0] == ANNEX_TAG)
             tmp = damage_bytes(ret[1])
-            while annex is None and tmp[0] == 0xff and not ver_ff:
+            while annex is None and tmp[0] == ANNEX_TAG and not ver_annex:
                 tmp = damage_bytes(ret[1])
             ret[1] = tmp
         else:
@@ -378,7 +378,7 @@ class TAPROOTTest(BitcoinTestFramework):
         spenders = []
 
         for p2sh in [False, True]:
-            random_annex = bytes([0xff]) + random_bytes(random.randrange(0, 5))
+            random_annex = bytes([ANNEX_TAG]) + random_bytes(random.randrange(0, 5))
             for annex in [None, random_annex]:
                 standard = annex is None
                 sec1, sec2 = ECKey(), ECKey()
@@ -417,7 +417,7 @@ class TAPROOTTest(BitcoinTestFramework):
                     CScript(random_script(10000) + bytes([random_op_success()]) + random_invalid_push(random.randint(1,1))),
                     (random_unknown_tapscript_ver(), CScript([OP_RETURN])),
                     (random_unknown_tapscript_ver(), CScript(random_script(10000) + random_invalid_push(random.randint(1,1)))),
-                    (0xfe, CScript()),
+                    (ANNEX_TAG & 0xfe, CScript()),
                 ]
                 info = taproot_construct(pub1, scripts)
                 spender_sighash_mutation(spenders, info, p2sh, "alwaysvalid/pk", key=sec1, hashtype=random.choice(VALID_SIGHASHES), annex=annex, standard=standard)
@@ -427,7 +427,7 @@ class TAPROOTTest(BitcoinTestFramework):
                 spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/success#10000+", script=scripts[3], annex=annex)
                 spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#return", script=scripts[4], annex=annex)
                 spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#10000+", script=scripts[5], annex=annex)
-                if (info[2][scripts[6][1]][0] != 0xff or annex is not None):
+                if (info[2][scripts[6][1]][0] != ANNEX_TAG or annex is not None):
                     # Annex is mandatory for control block with version 0xff
                     spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#fe", script=scripts[6], annex=annex)
 
