@@ -147,10 +147,13 @@ def spend_alwaysvalid(tx, input_index, info, p2sh, script, annex=None, damage_co
         version, script = script
     ret = [script, info[2][script]]
     if damage_control:
+        # Annex is always required for tapscript version 0xff
+        # Unless the original version is 0xff, we couldn't convert it to 0xff without using annex
         ver_ff = (ret[1][0] == 0xff)
-        ret[1] = damage_bytes(ret[1])
-        while annex is None and ret[1][0] == 0xff and not ver_ff:
-            ret[1] = damage_bytes(ret[1])
+        tmp = damage_bytes(ret[1])
+        while annex is None and tmp[0] == 0xff and not ver_ff:
+            tmp = damage_bytes(ret[1])
+        ret[1] = tmp
     if annex is not None:
         ret += [annex]
     # Randomly add input witness
@@ -393,10 +396,8 @@ class TAPROOTTest(BitcoinTestFramework):
                 spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/success#10000+", script=scripts[3], annex=annex)
                 spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#return", script=scripts[4], annex=annex)
                 spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#10000+", script=scripts[5], annex=annex)
-                if (info[2][scripts[6][1]][0] == 0xff):
-                    # Annex is mandatory for tapscript version 0xff
-                    spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#ff", script=scripts[6], annex=random_annex)
-                else:
+                if (info[2][scripts[6][1]][0] != 0xff or annex is not None):
+                    # Annex is mandatory for control block with version 0xff
                     spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#fe", script=scripts[6], annex=annex)
 
         # Run all tests once with individual inputs, once with groups of inputs
