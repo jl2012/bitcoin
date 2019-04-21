@@ -1506,6 +1506,7 @@ bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned 
             int hashtype = 0;
             if (vchSig.size() == 65) {
                 hashtype = vchSig.back();
+                if (hashtype == 0) return false;
                 vchSig.pop_back();
             }
             if (vchSig.size() != 64) return false;
