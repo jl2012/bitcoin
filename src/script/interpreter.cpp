@@ -1644,7 +1644,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         pubkey[0] = 2 + (pubkey[0] & 1);
         stack = witness.stack;
         if (stack.size() == 0) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
-        if (stack.size() >= 2 && !stack.back().empty() && stack.back()[0] == 0xff) {
+        if (stack.size() >= 2 && !stack.back().empty() && stack.back()[0] == ANNEX_TAG) {
             // Drop annex
             if (flags & SCRIPT_VERIFY_DISCOURAGE_UNKNOWN_ANNEX) return set_error(serror, SCRIPT_ERR_DISCOURAGE_UNKNOWN_ANNEX);
             execdata.m_annex_hash = (CHashWriter(SER_GETHASH, 0) << stack.back()).GetSHA256();

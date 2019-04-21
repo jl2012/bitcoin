@@ -48,6 +48,11 @@ static const uint32_t LOCKTIME_MAX = 0xFFFFFFFFU;
 // The first passing signature is not counted
 static const size_t VALIDATION_WEIGHT_PER_SIGOP_PASSED = 50;
 
+// Tag for input annex. If there are at least two witness elements for a transaction input,
+// and the first byte of the last element is 0xff, this last element is called annex, and
+// has meanings independent of the script
+static const unsigned int ANNEX_TAG = 0xff;
+
 template <typename T>
 std::vector<unsigned char> ToByteVector(const T& in)
 {

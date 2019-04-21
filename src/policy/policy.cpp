@@ -224,7 +224,7 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
             return false;
 
         auto stack = tx.vin[i].scriptWitness.stack;
-        if (stack.size() >= 2 && !stack.back().empty() && stack.back()[0] == 0xff) {
+        if (stack.size() >= 2 && !stack.back().empty() && stack.back()[0] == ANNEX_TAG) {
             return false; // annex is non-standard
         }
 
