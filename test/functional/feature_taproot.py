@@ -414,9 +414,9 @@ class TAPROOTTest(BitcoinTestFramework):
                     CScript([random_op_success()]),
                     CScript([OP_0, OP_IF, random_op_success(), OP_ENDIF, OP_RETURN]),
                     CScript([random_op_success(), OP_VERIF]),
-                    CScript(random_script(10000) + bytes([random_op_success()]) + random_invalid_push(random.randint(1,1))),
+                    CScript(random_script(10000) + bytes([random_op_success()]) + random_invalid_push(random.randint(1,10))),
                     (random_unknown_tapscript_ver(), CScript([OP_RETURN])),
-                    (random_unknown_tapscript_ver(), CScript(random_script(10000) + random_invalid_push(random.randint(1,1)))),
+                    (random_unknown_tapscript_ver(), CScript(random_script(10000) + random_invalid_push(random.randint(1,10)))),
                     (ANNEX_TAG & 0xfe, CScript()),
                 ]
                 info = taproot_construct(pub1, scripts)
