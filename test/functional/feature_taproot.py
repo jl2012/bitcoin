@@ -111,8 +111,25 @@ def random_checksig_style(pubkey):
 def damage_bytes(b):
     return (int.from_bytes(b, 'big') ^ (1 << random.randrange(len(b)*8))).to_bytes(len(b), 'big')
 
-def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, hashtype=0, prefix=[], suffix=[], script=None, pos=-1, damage_sighash=False):
+def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, hashtype=0, prefix=[], suffix=[], script=None, pos=-1, damage=False):
     ht = hashtype
+    damage_sighash, damage_sig, damage_hashtype = False, False, False
+    if (damage):
+        '''
+        * With 25% chance, we bit flip the sighash
+        * With 25% chance, we bit flip the signature
+        * If the hashtype is 0:
+        -- With 25% chance, we append a 0 to the signature
+        -- With 25% chance, we append a random value of 1-255 to the signature
+        * If the hashtype is not 0:
+        -- With 25% chance, we do not append hashtype to the signature
+        -- With 25% chance, we append a random incorrect value of 0-255 to the signature
+        '''
+        damage_hashtype = random.choice([True, False])
+        if not damage_hashtype:
+            damage_sighash = random.choice([True, False])
+            damage_sig = not damage_sighash
+
     # Taproot key path spend: tweak key
     if script is None:
         key = key.tweak_add(info[1])
@@ -129,7 +146,17 @@ def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, 
         sighash = damage_bytes(sighash)
     # Compute signature
     sig = key.sign_schnorr(sighash)
-    if hashtype > 0:
+    if damage_sig:
+        sig = damage_bytes(sig)
+    if damage_hashtype:
+        random_ht = ht
+        while random_ht == ht:
+            random_ht = random.randrange(256)
+        if ht == 0:
+            sig += bytes([random.choice([0, random_ht])])
+        elif random.choice([True, False]):
+            sig += bytes([random_ht])
+    elif ht > 0:
         sig += bytes([ht])
     # Construct witness
     ret = prefix + [sig] + suffix
@@ -142,18 +169,23 @@ def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, 
     if p2sh:
         tx.vin[input_index].scriptSig = CScript([info[0]])
 
-def spend_alwaysvalid(tx, input_index, info, p2sh, script, annex=None, damage_control=False):
+def spend_alwaysvalid(tx, input_index, info, p2sh, script, annex=None, damage=False):
     if isinstance(script, tuple):
         version, script = script
     ret = [script, info[2][script]]
-    if damage_control:
-        # Annex is always required for tapscript version 0xff
-        # Unless the original version is 0xff, we couldn't convert it to 0xff without using annex
-        ver_ff = (ret[1][0] == 0xff)
-        tmp = damage_bytes(ret[1])
-        while annex is None and tmp[0] == 0xff and not ver_ff:
+    if damage:
+        # With 50% chance, we bit flip the script (unless the script is an empty vector)
+        # With 50% chance, we bit flip the control block
+        if random.choice([True, False]) or len(ret[0]) == 0:
+            # Annex is always required for tapscript version 0xff
+            # Unless the original version is 0xff, we couldn't convert it to 0xff without using annex
+            ver_ff = (ret[1][0] == 0xff)
             tmp = damage_bytes(ret[1])
-        ret[1] = tmp
+            while annex is None and tmp[0] == 0xff and not ver_ff:
+                tmp = damage_bytes(ret[1])
+            ret[1] = tmp
+        else:
+            ret[0] = damage_bytes(ret[0])
     if annex is not None:
         ret += [annex]
     # Randomly add input witness
@@ -172,7 +204,7 @@ def spender_sighash_mutation(spenders, info, p2sh, comment, standard=True, **kwa
         spk = GetP2SH(spk)
         addr = get_taproot_p2sh(info)
     def fn(t, i, u, v):
-        return spend_single_sig(t, i, u, damage_sighash=not v, info=info, p2sh=p2sh, **kwargs)
+        return spend_single_sig(t, i, u, damage=not v, info=info, p2sh=p2sh, **kwargs)
     spenders.append((spk, addr, comment, standard, fn))
 
 def spender_alwaysvalid(spenders, info, p2sh, comment, **kwargs):
@@ -182,7 +214,7 @@ def spender_alwaysvalid(spenders, info, p2sh, comment, **kwargs):
         spk = GetP2SH(spk)
         addr = get_taproot_p2sh(info)
     def fn(t, i, u, v):
-        return spend_alwaysvalid(t, i, damage_control=not v, info=info, p2sh=p2sh, **kwargs)
+        return spend_alwaysvalid(t, i, damage=not v, info=info, p2sh=p2sh, **kwargs)
     spenders.append((spk, addr, comment, False, fn))
 
 class TAPROOTTest(BitcoinTestFramework):
