@@ -923,16 +923,15 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     if (opcode == OP_CHECKSIGADD && sigversion <= SigVersion::WITNESS_V0) {
                         return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
                     }
-                    int args = (opcode == OP_CHECKSIGADD) ? 3 : 2;
+                    const int args = (opcode == OP_CHECKSIGADD) ? 3 : 2;
 
                     // (sig pubkey -- bool)
                     if (stack.size() < (size_t)args)
                         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
-                    valtype& vchSig    = stacktop(-args);
-                    valtype& vchPubKey = stacktop(-1);
-                    CScriptNum num(0);
-                    if (opcode == OP_CHECKSIGADD) num = CScriptNum(stacktop(-2), fRequireMinimal);
+                    const valtype& vchSig    = stacktop(-args);
+                    const valtype& vchPubKey = stacktop(-1);
+                    const CScriptNum num = (opcode == OP_CHECKSIGADD) ? CScriptNum(stacktop(-2), fRequireMinimal) : bnZero;
 
                     bool fSuccess;
 
@@ -978,7 +977,15 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                             if (fSuccess && !checker.CheckSig(vchSig, vchPubKey, execdata, sigversion)) {
                                 return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
                             }
-                        } else {
+                        }
+
+                        /*
+                         *  New public key version softfork should be defined before this comment as an `else if` block.
+                         *  Generally, the new code should not do anything but failing the script execution. To avoid
+                         *  consensus bug, it must not alter any existing values including fSuccess and sigops_passed.
+                         */
+
+                        else {
                             if ((flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE) != 0) {
                                 return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_PUBKEYTYPE);
                             }
@@ -998,7 +1005,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     for (int i = 0; i < args; ++i) popstack(stack);
                     if (opcode == OP_CHECKSIGVERIFY && !fSuccess) return set_error(serror, SCRIPT_ERR_CHECKSIGVERIFY);
                     if (opcode == OP_CHECKSIG) stack.push_back(fSuccess ? vchTrue : vchFalse);
-                    if (opcode == OP_CHECKSIGADD) stack.push_back((num + (fSuccess ? 1 : 0)).getvch());
+                    if (opcode == OP_CHECKSIGADD) stack.push_back((num + (fSuccess ? bnOne : bnZero)).getvch());
                 }
                 break;
 
@@ -1317,11 +1324,10 @@ template PrecomputedTransactionData::PrecomputedTransactionData(const CTransacti
 template PrecomputedTransactionData::PrecomputedTransactionData(const CMutableTransaction& txTo);
 
 template <class T>
-bool SignatureHashTap(uint256& hash_out, const ScriptExecutionData& execdata, const T& tx_to, unsigned int in_pos, int hashtype, SigVersion sigversion, const PrecomputedTransactionData& cache)
+bool SignatureHashTap(uint256& hash_out, const ScriptExecutionData& execdata, const T& tx_to, const unsigned int& in_pos, const unsigned char& hashtype, const SigVersion& sigversion, const PrecomputedTransactionData& cache)
 {
     assert(in_pos < tx_to.vin.size());
-
-    if (sigversion == SigVersion::TAPROOT || sigversion == SigVersion::TAPSCRIPT) {
+    assert(sigversion == SigVersion::TAPROOT || sigversion == SigVersion::TAPSCRIPT);
         assert(cache.ready && cache.m_amounts_spent_ready);
         CHashWriter ss(SER_GETHASH, 0);
 
@@ -1336,19 +1342,20 @@ bool SignatureHashTap(uint256& hash_out, const ScriptExecutionData& execdata, co
 
         // Hash type
         if ((hashtype < 0 || hashtype > 3) && (hashtype < 0x81 || hashtype > 0x83)) return false;
-        unsigned char hash_type = static_cast<unsigned char>(hashtype);
-        ss << hash_type;
+        ss << hashtype;
+        const int input_type = hashtype & SIGHASH_TAPINPUTMASK;
+        const int output_type = hashtype & SIGHASH_TAPOUTPUTMASK;
 
         // Transaction level data
         ss << tx_to.nVersion;
         ss << tx_to.nLockTime;
 
-        if (!(hash_type & SIGHASH_ANYONECANPAY)) {
+        if (input_type == SIGHASH_TAPDEFAULT) {
             ss << cache.m_prevouts_hash;
             ss << cache.m_amounts_spent_hash;
             ss << cache.m_sequences_hash;
         }
-        if ((hash_type & 3) != SIGHASH_SINGLE && (hash_type & 3) != SIGHASH_NONE) {
+        if (output_type == SIGHASH_TAPDEFAULT || output_type == SIGHASH_ALL) {
             ss << cache.m_outputs_hash;
         }
 
@@ -1366,20 +1373,19 @@ bool SignatureHashTap(uint256& hash_out, const ScriptExecutionData& execdata, co
         ss << spend_type;
         ss << scriptPubKey;
 
-        if (hash_type & SIGHASH_ANYONECANPAY) {
+        if (input_type == SIGHASH_ANYONECANPAY) {
             ss << tx_to.vin[in_pos].prevout;
             ss << cache.m_spent_outputs[in_pos].nValue;
             ss << tx_to.vin[in_pos].nSequence;
         } else {
-            const uint16_t input_index = static_cast<uint16_t>(in_pos);
-            ss << input_index;
+            ss << static_cast<uint16_t>(in_pos);
         }
         if (execdata.m_annex_present) {
             ss << execdata.m_annex_hash;
         }
 
         // Data about the output(s)
-        if ((hash_type & 3) == SIGHASH_SINGLE) {
+        if (output_type == SIGHASH_SINGLE) {
             if (in_pos >= tx_to.vout.size()) return false;
             CHashWriter sha_single_output(SER_GETHASH, 0);
             sha_single_output << tx_to.vout[in_pos];
@@ -1395,9 +1401,6 @@ bool SignatureHashTap(uint256& hash_out, const ScriptExecutionData& execdata, co
 
         hash_out = ss.GetSHA256();
         return true;
-    }
-
-    assert(false);
 }
 
 template <class T>
@@ -1503,10 +1506,10 @@ bool GenericTransactionSignatureChecker<T>::CheckSig(const std::vector<unsigned 
     case SigVersion::TAPROOT:
     case SigVersion::TAPSCRIPT:
         {
-            int hashtype = 0;
+            unsigned char hashtype = SIGHASH_TAPDEFAULT;
             if (vchSig.size() == 65) {
                 hashtype = vchSig.back();
-                if (hashtype == 0) return false;
+                if (hashtype == SIGHASH_TAPDEFAULT) return false;
                 vchSig.pop_back();
             }
             if (vchSig.size() != 64) return false;
@@ -1672,8 +1675,6 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         int path_len = (control.size() - 33) / 32;
         std::vector<unsigned char> basekey(control.begin(), control.begin() + 33);
         basekey[0] = 2 + (basekey[0] & 1);
-        CPubKey base(basekey.begin(), basekey.end());
-        CPubKey outpoint(pubkey.begin(), pubkey.end());
         CHashWriter ss_leaf(SER_GETHASH, 0);
         uint256 tag;
         CSHA256().Write((unsigned char*)"TapLeaf", 7).Finalize(tag.begin());
@@ -1692,7 +1693,9 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         }
         CSHA256().Write((unsigned char*)"TapTweak", 8).Finalize(tag.begin());
         k = (CHashWriter(SER_GETHASH, 0) << tag << tag << MakeSpan(basekey) << k).GetSHA256();
-        if (!outpoint.CheckPayToContract(base, k)) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+        CPubKey p(basekey.begin(), basekey.end());
+        CPubKey q(pubkey.begin(), pubkey.end());
+        if (!q.CheckPayToContract(p, k)) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
         if ((control[0] & 0xfe) == 0xc0) {
             sigversion = SigVersion::TAPSCRIPT;
             CScript::const_iterator pc = scriptPubKey.begin();
