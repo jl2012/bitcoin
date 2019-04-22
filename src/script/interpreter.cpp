@@ -1328,79 +1328,79 @@ bool SignatureHashTap(uint256& hash_out, const ScriptExecutionData& execdata, co
 {
     assert(in_pos < tx_to.vin.size());
     assert(sigversion == SigVersion::TAPROOT || sigversion == SigVersion::TAPSCRIPT);
-        assert(cache.ready && cache.m_amounts_spent_ready);
-        CHashWriter ss(SER_GETHASH, 0);
+    assert(cache.ready && cache.m_amounts_spent_ready);
+    CHashWriter ss(SER_GETHASH, 0);
 
-        // This part could be optimized by initialising SHA256 with a constant midstate.
-        uint256 tag;
-        CSHA256().Write((unsigned char*)"TapSighash", 10).Finalize(tag.begin());
-        ss << tag << tag;
+    // This part could be optimized by initialising SHA256 with a constant midstate.
+    uint256 tag;
+    CSHA256().Write((unsigned char*)"TapSighash", 10).Finalize(tag.begin());
+    ss << tag << tag;
 
-        // Epoch
-        unsigned char epoch = 0;
-        ss << epoch;
+    // Epoch
+    unsigned char epoch = 0;
+    ss << epoch;
 
-        // Hash type
-        if ((hashtype < 0 || hashtype > 3) && (hashtype < 0x81 || hashtype > 0x83)) return false;
-        ss << hashtype;
-        const int input_type = hashtype & SIGHASH_TAPINPUTMASK;
-        const int output_type = hashtype & SIGHASH_TAPOUTPUTMASK;
+    // Hash type
+    if ((hashtype < 0 || hashtype > 3) && (hashtype < 0x81 || hashtype > 0x83)) return false;
+    ss << hashtype;
+    const int input_type = hashtype & SIGHASH_TAPINPUTMASK;
+    const int output_type = hashtype & SIGHASH_TAPOUTPUTMASK;
 
-        // Transaction level data
-        ss << tx_to.nVersion;
-        ss << tx_to.nLockTime;
+    // Transaction level data
+    ss << tx_to.nVersion;
+    ss << tx_to.nLockTime;
 
-        if (input_type == SIGHASH_TAPDEFAULT) {
-            ss << cache.m_prevouts_hash;
-            ss << cache.m_amounts_spent_hash;
-            ss << cache.m_sequences_hash;
-        }
-        if (output_type == SIGHASH_TAPDEFAULT || output_type == SIGHASH_ALL) {
-            ss << cache.m_outputs_hash;
-        }
+    if (input_type == SIGHASH_TAPDEFAULT) {
+        ss << cache.m_prevouts_hash;
+        ss << cache.m_amounts_spent_hash;
+        ss << cache.m_sequences_hash;
+    }
+    if (output_type == SIGHASH_TAPDEFAULT || output_type == SIGHASH_ALL) {
+        ss << cache.m_outputs_hash;
+    }
 
-        // Data about the input/prevout being spent
-        const CScript& scriptPubKey = cache.m_spent_outputs[in_pos].scriptPubKey;
-        unsigned char spend_type = scriptPubKey.IsPayToScriptHash() ? 1 : 0;
-        assert(execdata.m_annex_init);
-        if (execdata.m_annex_present) {
-            spend_type |= 2;
-        }
-        if (sigversion == SigVersion::TAPSCRIPT) {
-            spend_type |= 4;
-        }
+    // Data about the input/prevout being spent
+    const CScript& scriptPubKey = cache.m_spent_outputs[in_pos].scriptPubKey;
+    unsigned char spend_type = scriptPubKey.IsPayToScriptHash() ? 1 : 0;
+    assert(execdata.m_annex_init);
+    if (execdata.m_annex_present) {
+        spend_type |= 2;
+    }
+    if (sigversion == SigVersion::TAPSCRIPT) {
+        spend_type |= 4;
+    }
 
-        ss << spend_type;
-        ss << scriptPubKey;
+    ss << spend_type;
+    ss << scriptPubKey;
 
-        if (input_type == SIGHASH_ANYONECANPAY) {
-            ss << tx_to.vin[in_pos].prevout;
-            ss << cache.m_spent_outputs[in_pos].nValue;
-            ss << tx_to.vin[in_pos].nSequence;
-        } else {
-            ss << static_cast<uint16_t>(in_pos);
-        }
-        if (execdata.m_annex_present) {
-            ss << execdata.m_annex_hash;
-        }
+    if (input_type == SIGHASH_ANYONECANPAY) {
+        ss << tx_to.vin[in_pos].prevout;
+        ss << cache.m_spent_outputs[in_pos].nValue;
+        ss << tx_to.vin[in_pos].nSequence;
+    } else {
+        ss << static_cast<uint16_t>(in_pos);
+    }
+    if (execdata.m_annex_present) {
+        ss << execdata.m_annex_hash;
+    }
 
-        // Data about the output(s)
-        if (output_type == SIGHASH_SINGLE) {
-            if (in_pos >= tx_to.vout.size()) return false;
-            CHashWriter sha_single_output(SER_GETHASH, 0);
-            sha_single_output << tx_to.vout[in_pos];
-            ss << sha_single_output.GetSHA256();
-        }
+    // Data about the output(s)
+    if (output_type == SIGHASH_SINGLE) {
+        if (in_pos >= tx_to.vout.size()) return false;
+        CHashWriter sha_single_output(SER_GETHASH, 0);
+        sha_single_output << tx_to.vout[in_pos];
+        ss << sha_single_output.GetSHA256();
+    }
 
-        // Additional data for tapscript
-        if (sigversion == SigVersion::TAPSCRIPT) {
-            assert(execdata.m_tapscript);
-            ss << execdata.m_tapscript_hash;
-            ss << execdata.m_codeseparator_pos;
-        }
+    // Additional data for tapscript
+    if (sigversion == SigVersion::TAPSCRIPT) {
+        assert(execdata.m_tapscript);
+        ss << execdata.m_tapscript_hash;
+        ss << execdata.m_codeseparator_pos;
+    }
 
-        hash_out = ss.GetSHA256();
-        return true;
+    hash_out = ss.GetSHA256();
+    return true;
 }
 
 template <class T>
