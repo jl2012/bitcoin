@@ -163,8 +163,8 @@ struct ScriptExecutionData
 {
     CScript m_scriptcode;
 
-    bool m_tapscript = false;
-    uint256 m_tapscript_hash;
+    bool m_tapleaf_hash_init = false;
+    uint256 m_tapleaf_hash;
     int16_t m_codeseparator_pos;
 
     bool m_annex_init = false;

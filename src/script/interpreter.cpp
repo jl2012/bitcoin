@@ -1394,8 +1394,8 @@ bool SignatureHashTap(uint256& hash_out, const ScriptExecutionData& execdata, co
 
     // Additional data for tapscript
     if (sigversion == SigVersion::TAPSCRIPT) {
-        assert(execdata.m_tapscript);
-        ss << execdata.m_tapscript_hash;
+        assert(execdata.m_tapleaf_hash_init);
+        ss << execdata.m_tapleaf_hash;
         ss << execdata.m_codeseparator_pos;
     }
 
@@ -1680,6 +1680,8 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         CSHA256().Write((unsigned char*)"TapLeaf", 7).Finalize(tag.begin());
         ss_leaf << tag << tag << uint8_t(control[0] & 0xfe) << scriptPubKey;
         uint256 k = ss_leaf.GetSHA256();
+        execdata.m_tapleaf_hash = k;
+        execdata.m_tapleaf_hash_init = true;
         CSHA256().Write((unsigned char*)"TapBranch", 9).Finalize(tag.begin());
         for (int i = 0; i < path_len; ++i) {
             CHashWriter ss_branch(SER_GETHASH, 0);
@@ -1713,8 +1715,6 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
                     return set_success(serror);
                 }
             }
-            execdata.m_tapscript_hash = (CHashWriter(SER_GETHASH, 0) << scriptPubKey).GetSHA256();
-            execdata.m_tapscript = true;
             execdata.m_witness_weight = ::GetSerializeSize(witness.stack, PROTOCOL_VERSION);
             execdata.m_witness_weight_init = true;
         } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_LANGUAGE) {

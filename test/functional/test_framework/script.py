@@ -717,7 +717,7 @@ def SegwitVersion1SignatureHash(script, txTo, inIdx, hashtype, amount):
 
     return hash256(ss)
 
-def TaprootSignatureHash(txTo, spent_utxos, hash_type, input_index = 0, scriptpath = False, tapscript = CScript(), codeseparator_pos = -1, annex = None):
+def TaprootSignatureHash(txTo, spent_utxos, hash_type, input_index = 0, scriptpath = False, tapscript = CScript(), codeseparator_pos = -1, annex = None, tapscript_ver = DEFAULT_TAPSCRIPT_VER):
     assert (len(txTo.vin) == len(spent_utxos))
     assert((hash_type >= 0 and hash_type <= 3) or (hash_type >= 0x81 and hash_type <= 0x83))
     assert (input_index < len(txTo.vin))
@@ -757,7 +757,7 @@ def TaprootSignatureHash(txTo, spent_utxos, hash_type, input_index = 0, scriptpa
         assert (input_index < len(txTo.vout))
         ss += sha256(txTo.vout[input_index].serialize())
     if (scriptpath):
-        ss += sha256(ser_string(tapscript))
+        ss += TaggedHash("TapLeaf", bytes([tapscript_ver]) + ser_string(tapscript))
         ss += struct.pack("<h", codeseparator_pos)
     assert (len(ss) == 177 - bool(hash_type & SIGHASH_ANYONECANPAY) * 50 - ((hash_type & 3) == SIGHASH_NONE) * 32 - (IsPayToScriptHash(spk)) * 12 + (annex is not None) * 32 + scriptpath * 34)
     return TaggedHash("TapSighash", ss)
