@@ -44,10 +44,10 @@ def random_op_success():
         ret = random.randint(0x50, 0xfe)
     return CScriptOp(ret)
 
-def random_unknown_tapscript_ver():
+def random_unknown_tapscript_ver(no_annex_tag=True):
     ret = DEFAULT_TAPSCRIPT_VER
-    while (ret == DEFAULT_TAPSCRIPT_VER):
-        ret = random.randint(0, 126) * 2
+    while (ret == DEFAULT_TAPSCRIPT_VER or (no_annex_tag and ret == (ANNEX_TAG & 0xfe))):
+        ret = random.randrange(128) * 2
     return ret
 
 def random_bytes(n):
@@ -178,9 +178,8 @@ def spend_alwaysvalid(tx, input_index, info, p2sh, script, annex=None, damage=Fa
         if random.choice([True, False]) or len(ret[0]) == 0:
             # Annex is always required for tapscript version 0xff
             # Unless the original version is 0xff, we couldn't convert it to 0xff without using annex
-            ver_annex = (ret[1][0] == ANNEX_TAG)
             tmp = damage_bytes(ret[1])
-            while annex is None and tmp[0] == ANNEX_TAG and not ver_annex:
+            while annex is None and tmp[0] == ANNEX_TAG and ret[1][0] != ANNEX_TAG:
                 tmp = damage_bytes(ret[1])
             ret[1] = tmp
         else:
