@@ -95,8 +95,8 @@ BOOST_FIXTURE_TEST_CASE(tx_mempool_block_doublespend, TestChain100Setup)
 // flags.  Test that CheckInputs passes for all flags that don't overlap with
 // the failing_flags argument, but otherwise fails.
 // CHECKLOCKTIMEVERIFY and CHECKSEQUENCEVERIFY (and future NOP codes that may
-// get reassigned) have an interaction with DISCOURAGE_UPGRADABLE_NOPS: if
-// the script flags used contain DISCOURAGE_UPGRADABLE_NOPS but don't contain
+// get reassigned) have an interaction with DISCOURAGE_UPGRADABLE_LANGUAGE: if
+// the script flags used contain DISCOURAGE_UPGRADABLE_LANGUAGE but don't contain
 // CHECKLOCKTIMEVERIFY (or CHECKSEQUENCEVERIFY), but the script does contain
 // OP_CHECKLOCKTIMEVERIFY (or OP_CHECKSEQUENCEVERIFY), then script execution
 // should fail.

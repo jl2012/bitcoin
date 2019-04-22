@@ -464,7 +464,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 case OP_NOP1: case OP_NOP4: case OP_NOP5:
                 case OP_NOP6: case OP_NOP7: case OP_NOP8: case OP_NOP9: case OP_NOP10:
                 {
-                    if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS)
+                    if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_LANGUAGE)
                         return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
                 }
                 break;
@@ -986,7 +986,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                          */
 
                         else {
-                            if ((flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE) != 0) {
+                            if ((flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_LANGUAGE) != 0) {
                                 return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_PUBKEYTYPE);
                             }
                         }
@@ -1649,7 +1649,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         if (stack.size() == 0) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
         if (stack.size() >= 2 && !stack.back().empty() && stack.back()[0] == ANNEX_TAG) {
             // Drop annex
-            if (flags & SCRIPT_VERIFY_DISCOURAGE_UNKNOWN_ANNEX) return set_error(serror, SCRIPT_ERR_DISCOURAGE_UNKNOWN_ANNEX);
+            if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_LANGUAGE) return set_error(serror, SCRIPT_ERR_DISCOURAGE_UNKNOWN_ANNEX);
             execdata.m_annex_hash = (CHashWriter(SER_GETHASH, 0) << stack.back()).GetSHA256();
             execdata.m_annex_present = true;
             stack.pop_back();
@@ -1707,7 +1707,7 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
                 }
                 // New opcodes will be listed here. May use a different sigversion to modify existing opcodes.
                 if (IsOpSuccess(opcode)) {
-                    if (flags & SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS) {
+                    if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_LANGUAGE) {
                         return set_error(serror, SCRIPT_ERR_DISCOURAGE_OP_SUCCESS);
                     }
                     return set_success(serror);
@@ -1717,12 +1717,12 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             execdata.m_tapscript = true;
             execdata.m_witness_weight = ::GetSerializeSize(witness.stack, PROTOCOL_VERSION);
             execdata.m_witness_weight_init = true;
-        } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION) {
+        } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_LANGUAGE) {
             return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION);
         } else {
             return set_success(serror);
         }
-    } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) {
+    } else if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_LANGUAGE) {
         return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
     } else {
         // Higher version witness scripts return true for future softfork compatibility

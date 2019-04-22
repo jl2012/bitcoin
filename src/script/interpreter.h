@@ -68,17 +68,24 @@ enum
     // In addition, whenever a stack element is interpreted as a number, it must be of minimal length (BIP62 rule 4).
     SCRIPT_VERIFY_MINIMALDATA = (1U << 6),
 
-    // Discourage use of NOPs reserved for upgrades (NOP1-10)
+    // Discourage use of upgradable script language
     //
-    // Provided so that nodes can avoid accepting or mining transactions
-    // containing executed NOP's whose meaning may change after a soft-fork,
-    // thus rendering the script invalid; with this flag set executing
-    // discouraged NOPs fails the script. This verification flag will never be
-    // a mandatory flag applied to scripts in a block. NOPs that are not
-    // executed, e.g.  within an unexecuted IF ENDIF block, are *not* rejected.
-    // NOPs that have associated forks to give them new meaning (CLTV, CSV)
-    // are not subject to this rule.
-    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS  = (1U << 7),
+    // Provided so that nodes can avoid accepting or mining transaction containing undefined script language whose
+    // meaning may change after a soft-fork, thus rendering the script invalid; with this flag set executing
+    // discouraged language fails the script. This verification flag will never be a mandatory flag applied to scripts
+    // in a block.
+    // * NOPs reserved for upgrades (NOP1, NOP4-10): NOPs that are not executed, e.g. within an unexecuted IF ENDIF
+    // block, are *not* rejected. NOPs that have associated forks to give them new meaning (CLTV, CSV) are not subject
+    // to this rule. (The former SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS)
+    // * Undefined witness program (the former SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM)
+    // -- v2 to v16
+    // -- v1 but not taproot
+    // * Taproot:
+    // -- inner versions not 0xc0
+    // -- use of unknown annex
+    // -- use of OP_SUCCESSx
+    // -- use of unknown public key versions
+    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_LANGUAGE  = (1U << 7),
 
     // Require that only a single stack element remains after evaluation. This changes the success criterion from
     // "At least one stack element must remain, and when interpreted as a boolean, it must be true" to
@@ -101,10 +108,6 @@ enum
     //
     SCRIPT_VERIFY_WITNESS = (1U << 11),
 
-    // Making v1-v16 witness program non-standard
-    //
-    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM = (1U << 12),
-
     // Segwit script only: Require the argument of OP_IF/NOTIF to be exactly 0x01 or empty vector
     //
     SCRIPT_VERIFY_MINIMALIF = (1U << 13),
@@ -124,18 +127,6 @@ enum
     // Taproot validation
     //
     SCRIPT_VERIFY_TAPROOT = (1U << 17),
-
-    // Making unknown taproot inner versions non-standard
-    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION = (1U << 18),
-
-    // Making unknown taproot inner versions non-standard
-    SCRIPT_VERIFY_DISCOURAGE_UNKNOWN_ANNEX = (1U << 19),
-
-    // Making unknown OP_SUCCESS non-standard
-    SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS = (1U << 20),
-
-    // Making unknown public key versions in tapscript non-standard
-    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE = (1U << 21),
 };
 
 bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);
