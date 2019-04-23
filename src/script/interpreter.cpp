@@ -1385,7 +1385,8 @@ bool SignatureHashTap(uint256& hash_out, const ScriptExecutionData& execdata, co
         ss << tx_to.vin[in_pos].prevout;
         ss << cache.m_spent_outputs[in_pos].nValue;
         ss << tx_to.vin[in_pos].nSequence;
-    } else {
+    }
+    if (input_type == SIGHASH_TAPDEFAULT) {
         ss << uint16_t(in_pos);
     }
     if (execdata.m_annex_present) {
