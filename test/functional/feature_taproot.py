@@ -165,8 +165,7 @@ def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, 
         ret = [random_bytes(random.randrange(5))] + ret
     tx.wit.vtxinwit[input_index].scriptWitness.stack = ret
     # Construct P2SH redeemscript
-    if p2sh:
-        tx.vin[input_index].scriptSig = CScript([info[0]])
+    tx.vin[input_index].scriptSig = CScript([info[0]]) if p2sh else CScript()
 
 def spend_alwaysvalid(tx, input_index, info, p2sh, script, annex=None, damage=False):
     if isinstance(script, tuple):
@@ -192,8 +191,7 @@ def spend_alwaysvalid(tx, input_index, info, p2sh, script, annex=None, damage=Fa
             ret = [random_bytes(random.randint(0, MAX_SCRIPT_ELEMENT_SIZE*2))] + ret
     tx.wit.vtxinwit[input_index].scriptWitness.stack = ret
     # Construct P2SH redeemscript
-    if p2sh:
-        tx.vin[input_index].scriptSig = CScript([info[0]])
+    tx.vin[input_index].scriptSig = CScript([info[0]]) if p2sh else CScript()
 
 def spender_sighash_mutation(spenders, info, p2sh, comment, standard=True, **kwargs):
     spk = info[0]
@@ -354,27 +352,30 @@ class TAPROOTTest(BitcoinTestFramework):
             fee += in_value
             assert(fee >= 0)
 
+            # Fill correct inputs/witnesses
+            for i in range(inputs):
+                fn = input_utxos[i][2][4]
+                fn(tx, i, [utxo[1] for utxo in input_utxos], True)
+            tx.rehash()
+
             # For each inputs, make it fail once; then succeed once
             for fail_input in range(inputs + 1):
-                # Wipe scriptSig/witness
-                for i in range(inputs):
-                    tx.vin[i].scriptSig = CScript()
-                    tx.wit.vtxinwit[i] = CTxInWitness()
-                # Fill inputs/witnesses
-                for i in range(inputs):
-                    fn = input_utxos[i][2][4]
-                    fn(tx, i, [utxo[1] for utxo in input_utxos], i != fail_input)
+                txcopy = CTransaction(tx)
+                # Fail a input
+                if (fail_input != inputs):
+                    fn = input_utxos[fail_input][2][4]
+                    fn(txcopy, fail_input, [utxo[1] for utxo in input_utxos], False)
+                txcopy.rehash()
                 # Submit to mempool to check standardness
-                standard = fail_input == inputs and all(utxo[2][3] for utxo in input_utxos) and tx.nVersion >= 1 and tx.nVersion <= 2
+                standard = fail_input == inputs and all(utxo[2][3] for utxo in input_utxos) and txcopy.nVersion >= 1 and txcopy.nVersion <= 2
                 if standard:
-                    self.nodes[0].sendrawtransaction(tx.serialize().hex(), 0)
-                    assert(self.nodes[0].getmempoolentry(tx.hash) is not None)
+                    self.nodes[0].sendrawtransaction(txcopy.serialize().hex(), 0)
+                    assert(self.nodes[0].getmempoolentry(txcopy.hash) is not None)
                 else:
-                    assert_raises_rpc_error(-26, None, self.nodes[0].sendrawtransaction, tx.serialize().hex(), 0)
+                    assert_raises_rpc_error(-26, None, self.nodes[0].sendrawtransaction, txcopy.serialize().hex(), 0)
                 # Submit in a block
-                tx.rehash()
                 msg = ','.join(utxo[2][2] + ("*" if n == fail_input else "") for n, utxo in enumerate(input_utxos))
-                self.block_submit(self.nodes[0], [tx], msg, witness=True, accept=fail_input == inputs, cb_pubkey=random.choice(host_pubkeys), fees=fee)
+                self.block_submit(self.nodes[0], [txcopy], msg, witness=True, accept=fail_input == inputs, cb_pubkey=random.choice(host_pubkeys), fees=fee)
 
     def run_test(self):
         VALID_SIGHASHES = [0,1,2,3,0x81,0x82,0x83]
