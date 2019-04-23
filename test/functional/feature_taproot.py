@@ -286,11 +286,11 @@ class TAPROOTTest(BitcoinTestFramework):
             random.shuffle(spenders)
 
             # Map created UTXOs back to the spenders they were created for
+            vout_dict = {}
             for n, out in enumerate(tx.vout):
-                for spender in batch:
-                    if out.scriptPubKey == spender[0]:
-                        utxos.append((COutPoint(tx.sha256, n), out, spender))
-                        break
+                vout_dict[out.scriptPubKey] = (COutPoint(tx.sha256, n), out)
+            for spender in batch:
+                utxos.append(vout_dict[spender[0]] + (spender,))
         assert(len(utxos) == num_spenders)
         random.shuffle(utxos)
         self.nodes[0].generate(1)
@@ -338,7 +338,6 @@ class TAPROOTTest(BitcoinTestFramework):
 
             # Add 1 to 4 outputs
             outputs = random.choice([1,2,3,4])
-            assert in_value >= 0 and fee - outputs * DUST_LIMIT >= MIN_FEE
             for i in range(outputs):
                 tx.vout.append(CTxOut())
                 if in_value <= DUST_LIMIT:
@@ -350,7 +349,7 @@ class TAPROOTTest(BitcoinTestFramework):
                 in_value -= tx.vout[-1].nValue
                 tx.vout[-1].scriptPubKey = random.choice(host_spks)
             fee += in_value
-            assert(fee >= 0)
+            assert(fee >= MIN_FEE)
 
             # Fill correct inputs/witnesses
             for i in range(inputs):
