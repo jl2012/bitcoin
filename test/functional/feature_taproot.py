@@ -111,7 +111,7 @@ def random_checksig_style(pubkey):
 def damage_bytes(b):
     return (int.from_bytes(b, 'big') ^ (1 << random.randrange(len(b)*8))).to_bytes(len(b), 'big')
 
-def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, hashtype=0, prefix=[], suffix=[], script=None, pos=-1, damage=False):
+def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, hashtype=0, prefix=[], suffix=[], script=None, pos=0xffff, damage=False):
     ht = hashtype
 
     damage_type = random.randrange(5) if damage else -1
