@@ -20,9 +20,17 @@ import struct
 EMPTYWITNESS_ERROR = "non-mandatory-script-verify-flag (Witness program was passed an empty witness) (code 64)"
 INVALIDKEYPATHSIG_ERROR = "non-mandatory-script-verify-flag (Invalid signature for taproot key path spending) (code 64)"
 UNKNOWNWITNESS_ERROR = "non-mandatory-script-verify-flag (Witness version reserved for soft-fork upgrades) (code 64)"
+VALID_SIGHASHES = [0,1,2,3,0x81,0x82,0x83]
+VALID_NOINPUTSIGHASHES = [0x41,0x42,0x43,0xc1,0xc2,0xc3]
 
 DUST_LIMIT = 600
 MIN_FEE = 5000
+
+def rand_nonnoinput():
+    return random.choice(VALID_SIGHASHES)
+
+def rand_noinput():
+    return random.choice(VALID_NOINPUTSIGHASHES)
 
 def tx_from_hex(hexstring):
     tx = CTransaction()
@@ -111,10 +119,15 @@ def random_checksig_style(pubkey):
 def damage_bytes(b):
     return (int.from_bytes(b, 'big') ^ (1 << random.randrange(len(b)*8))).to_bytes(len(b), 'big')
 
-def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, hashtype=0, prefix=[], suffix=[], script=None, pos=0xffff, damage=False):
-    ht = hashtype
-
-    damage_type = random.randrange(5) if damage else -1
+def spend_multi_sig(tx, input_index, spent_utxos, info, p2sh, sign, script=None, annex=None, damage=False):
+    damage_type_range = 5 if script is None else 6
+    damage_type = random.randrange(damage_type_range) if damage else -1
+    damage_sig = random.randrange(len(sign))
+    if damage:
+        for i in sign:
+            if 'dht' in i:
+                damage_type = 100
+                break
     '''
     * 0. bit flip the sighash
     * 1. bit flip the signature
@@ -125,38 +138,59 @@ def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, 
     -- 2. do not append hashtype to the signature
     -- 3. append a random incorrect value of 0-255 to the signature
     * 4. extra witness element
+    * 5. use a wrong key version for sighash
+    * 100. fail with given sighash type (for rannisawni)
     '''
 
     # Taproot key path spend: tweak key
     if script is None:
-        key = key.tweak_add(info[1])
+        assert (len(sign) == 1)
+        key = sign[0]['key'].tweak_add(info[1])
         assert(key is not None)
-    # Change SIGHASH_SINGLE into SIGHASH_ALL if no corresponding output
-    if (ht & 3 == SIGHASH_SINGLE and input_index >= len(tx.vout)):
-        ht ^= 2
-    # Compute sighash
-    if script:
-        sighash = TaprootSignatureHash(tx, spent_utxos, ht, input_index, scriptpath = True, tapscript = script, codeseparator_pos = pos, annex = annex)
-    else:
-        sighash = TaprootSignatureHash(tx, spent_utxos, ht, input_index, scriptpath = False, annex = annex)
-    if damage_type == 0:
-        sighash = damage_bytes(sighash)
-    # Compute signature
-    sig = key.sign_schnorr(sighash)
-    if damage_type == 1:
-        sig = damage_bytes(sig)
-    if damage_type == 2:
-        if ht == 0:
-            sig += bytes([0])
-    elif damage_type == 3:
-        random_ht = ht
-        while random_ht == ht:
-            random_ht = random.randrange(256)
-        sig += bytes([random_ht])
-    elif ht > 0:
-        sig += bytes([ht])
-    # Construct witness
-    ret = prefix + [sig] + suffix
+        ht = sign[0]["ht"] if "ht" in sign[0] else 0
+        sign = [{'key':key,'ht':ht}]
+
+    ret = []
+    for n, i in enumerate(sign):
+        damage_sig_type = damage_type if n == damage_sig else -1
+        ht = i["ht"] if "ht" in i else 0
+        if (damage_type == 100 and "dht" in i):
+            ht = i["dht"]
+        # Change SIGHASH_SINGLE into SIGHASH_ALL if no corresponding output
+        if (input_index >= len(tx.vout) and (ht & 3) == SIGHASH_SINGLE):
+            ht ^= 2
+        # Compute sighash
+        pos = i["pos"] if "pos" in i else 0xffff
+        ver = i["ver"] if "ver" in i else 2
+        if damage_sig_type == 5:
+            ver = 0 if ver == 2 else 2
+
+        if script:
+            sighash = TaprootSignatureHash(tx, spent_utxos, ht, input_index, scriptpath = True, tapscript = script, codeseparator_pos = pos, annex = annex, key_ver = ver)
+        else:
+            sighash = TaprootSignatureHash(tx, spent_utxos, ht, input_index, scriptpath = False, annex = annex)
+        if damage_sig_type == 0:
+            sighash = damage_bytes(sighash)
+        # Compute signature
+        sig = i["key"].sign_schnorr(sighash)
+        if damage_sig_type == 1:
+            sig = damage_bytes(sig)
+        if damage_sig_type == 2:
+            if ht == 0:
+                sig += bytes([0])
+        elif damage_sig_type == 3:
+            random_ht = ht
+            while random_ht == ht:
+                random_ht = random.randrange(256)
+            sig += bytes([random_ht])
+        elif ht > 0:
+            sig += bytes([ht])
+        # Construct witness
+        if "pre" in i:
+            ret += i["pre"]
+        ret += [sig]
+        if "suf" in i:
+            ret += i["suf"]
     if script is not None:
         ret += [script, info[2][script]]
     if annex is not None:
@@ -193,25 +227,18 @@ def spend_alwaysvalid(tx, input_index, info, p2sh, script, annex=None, damage=Fa
     # Construct P2SH redeemscript
     tx.vin[input_index].scriptSig = CScript([info[0]]) if p2sh else CScript()
 
-def spender_sighash_mutation(spenders, info, p2sh, comment, standard=True, **kwargs):
+def make_spender(spenders, info, p2sh, comment, key=None, sign=None, standard=True, **kwargs):
     spk = info[0]
     addr = get_taproot_bech32(info)
     if p2sh:
         spk = GetP2SH(spk)
         addr = get_taproot_p2sh(info)
     def fn(t, i, u, v):
-        return spend_single_sig(t, i, u, damage=not v, info=info, p2sh=p2sh, **kwargs)
+        if (sign is not None):
+            return spend_multi_sig(t, i, u, damage=not v, info=info, p2sh=p2sh, sign=sign, **kwargs)
+        else:
+            return spend_alwaysvalid(t, i, damage=not v, info=info, p2sh=p2sh, **kwargs)
     spenders.append((spk, addr, comment, standard, fn))
-
-def spender_alwaysvalid(spenders, info, p2sh, comment, **kwargs):
-    spk = info[0]
-    addr = get_taproot_bech32(info)
-    if p2sh:
-        spk = GetP2SH(spk)
-        addr = get_taproot_p2sh(info)
-    def fn(t, i, u, v):
-        return spend_alwaysvalid(t, i, damage=not v, info=info, p2sh=p2sh, **kwargs)
-    spenders.append((spk, addr, comment, False, fn))
 
 class TAPROOTTest(BitcoinTestFramework):
 
@@ -377,28 +404,28 @@ class TAPROOTTest(BitcoinTestFramework):
                 self.block_submit(self.nodes[0], [txcopy], msg, witness=True, accept=fail_input == inputs, cb_pubkey=random.choice(host_pubkeys), fees=fee)
 
     def run_test(self):
-        VALID_SIGHASHES = [0,1,2,3,0x81,0x82,0x83]
         spenders = []
 
         for p2sh in [False, True]:
             random_annex = bytes([ANNEX_TAG]) + random_bytes(random.randrange(0, 5))
             for annex in [None, random_annex]:
                 standard = annex is None
-                sec1, sec2 = ECKey(), ECKey()
+                sec1, sec2, sec3 = ECKey(), ECKey(), ECKey()
                 sec1.generate()
                 sec2.generate()
-                pub1, pub2 = sec1.get_pubkey(), sec2.get_pubkey()
+                sec3.generate()
+                pub1, pub2, pub3 = sec1.get_pubkey(), sec2.get_pubkey(), sec3.get_pubkey()
 
                 # Sighash mutation tests
-                for hashtype in VALID_SIGHASHES:
+                for ht in VALID_SIGHASHES:
                     # Pure pubkey
                     info = taproot_construct(pub1, [])
-                    spender_sighash_mutation(spenders, info, p2sh, "sighash/pk#pk", key=sec1, hashtype=hashtype, annex=annex, standard=standard)
+                    make_spender(spenders, info, p2sh, "sighash/pk#pk", sign=[{'key':sec1, 'ht':ht}], annex=annex, standard=standard)
                     # Pubkey/P2PK script combination
                     scripts = [CScript(random_checksig_style(pub2.get_bytes()))]
                     info = taproot_construct(pub1, scripts)
-                    spender_sighash_mutation(spenders, info, p2sh, "sighash/p2pk#pk", key=sec1, hashtype=hashtype, annex=annex, standard=standard)
-                    spender_sighash_mutation(spenders, info, p2sh, "sighash/p2pk#s0", script=scripts[0], key=sec2, hashtype=hashtype, annex=annex, standard=standard)
+                    make_spender(spenders, info, p2sh, "sighash/p2pk#pk", sign=[{'key':sec1, 'ht':ht}], annex=annex, standard=standard)
+                    make_spender(spenders, info, p2sh, "sighash/p2pk#s0", script=scripts[0], sign=[{'key':sec2, 'ht':ht}], annex=annex, standard=standard)
                     # More complex script structure
                     scripts = [
                         CScript(random_checksig_style(pub2.get_bytes()) + bytes([OP_CODESEPARATOR])), # codesep after checksig
@@ -406,11 +433,11 @@ class TAPROOTTest(BitcoinTestFramework):
                         CScript([bytes([1,2,3]), OP_DROP, OP_IF, OP_CODESEPARATOR, pub1.get_bytes(), OP_ELSE, OP_CODESEPARATOR, pub2.get_bytes(), OP_ENDIF, OP_CHECKSIG]), # branch dependent codesep
                     ]
                     info = taproot_construct(pub1, scripts)
-                    spender_sighash_mutation(spenders, info, p2sh, "sighash/codesep#pk", key=sec1, hashtype=hashtype, annex=annex, standard=standard)
-                    spender_sighash_mutation(spenders, info, p2sh, "sighash/codesep#s0", script=scripts[0], key=sec2, hashtype=hashtype, annex=annex, standard=standard)
-                    spender_sighash_mutation(spenders, info, p2sh, "sighash/codesep#s1", script=scripts[1], key=sec2, hashtype=hashtype, annex=annex, pos=0, standard=standard)
-                    spender_sighash_mutation(spenders, info, p2sh, "sighash/codesep#s2a", script=scripts[2], key=sec1, hashtype=hashtype, annex=annex, pos=3, suffix=[bytes([1])], standard=standard)
-                    spender_sighash_mutation(spenders, info, p2sh, "sighash/codesep#s2b", script=scripts[2], key=sec2, hashtype=hashtype, annex=annex, pos=6, suffix=[bytes([])], standard=standard)
+                    make_spender(spenders, info, p2sh, "sighash/codesep#pk", sign=[{'key':sec1, 'ht':ht}], annex=annex, standard=standard)
+                    make_spender(spenders, info, p2sh, "sighash/codesep#s0", script=scripts[0], sign=[{'key':sec2, 'ht':ht}], annex=annex, standard=standard)
+                    make_spender(spenders, info, p2sh, "sighash/codesep#s1", script=scripts[1], sign=[{'key':sec2, 'ht':ht, 'pos':0}], annex=annex, standard=standard)
+                    make_spender(spenders, info, p2sh, "sighash/codesep#s2a", script=scripts[2], sign=[{'key':sec1, 'ht':ht, 'pos':3, 'suf':[bytes([1])]}], annex=annex, standard=standard)
+                    make_spender(spenders, info, p2sh, "sighash/codesep#s2b", script=scripts[2], sign=[{'key':sec2, 'ht':ht, 'pos':6, 'suf':[bytes([])]}], annex=annex, standard=standard)
 
                 # OP_SUCCESSx and unknown tapscript versions
                 scripts = [
@@ -423,16 +450,39 @@ class TAPROOTTest(BitcoinTestFramework):
                     (ANNEX_TAG & 0xfe, CScript()),
                 ]
                 info = taproot_construct(pub1, scripts)
-                spender_sighash_mutation(spenders, info, p2sh, "alwaysvalid/pk", key=sec1, hashtype=random.choice(VALID_SIGHASHES), annex=annex, standard=standard)
-                spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/success", script=scripts[0], annex=annex)
-                spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/success#if", script=scripts[1], annex=annex)
-                spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/success#verif", script=scripts[2], annex=annex)
-                spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/success#10000+", script=scripts[3], annex=annex)
-                spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#return", script=scripts[4], annex=annex)
-                spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#10000+", script=scripts[5], annex=annex)
+                make_spender(spenders, info, p2sh, "alwaysvalid/pk", sign=[{'key':sec1, 'ht':rand_nonnoinput()}], annex=annex, standard=standard)
+                make_spender(spenders, info, p2sh, "alwaysvalid/success", script=scripts[0], annex=annex, standard=False)
+                make_spender(spenders, info, p2sh, "alwaysvalid/success#if", script=scripts[1], annex=annex, standard=False)
+                make_spender(spenders, info, p2sh, "alwaysvalid/success#verif", script=scripts[2], annex=annex, standard=False)
+                make_spender(spenders, info, p2sh, "alwaysvalid/success#10000+", script=scripts[3], annex=annex, standard=False)
+                make_spender(spenders, info, p2sh, "alwaysvalid/unknownversion#return", script=scripts[4], annex=annex, standard=False)
+                make_spender(spenders, info, p2sh, "alwaysvalid/unknownversion#10000+", script=scripts[5], annex=annex, standard=False)
                 if (info[2][scripts[6][1]][0] != ANNEX_TAG or annex is not None):
                     # Annex is mandatory for control block with version 0x50
-                    spender_alwaysvalid(spenders, info, p2sh, "alwaysvalid/unknownversion#fe", script=scripts[6], annex=annex)
+                    make_spender(spenders, info, p2sh, "alwaysvalid/unknownversion#fe", script=scripts[6], annex=annex, standard=False)
+
+                # Dual keys and NOINPUT
+                scripts = [
+                    CScript([pub2.get_bytes(), OP_CHECKSIGVERIFY, pub3.get_bytes(), OP_CHECKSIG]),
+                    CScript([pub2.get_bytes(0), OP_CHECKSIGVERIFY, pub3.get_bytes(), OP_CHECKSIG]),
+                    CScript([OP_1, OP_CHECKSIGVERIFY, pub3.get_bytes(), OP_CHECKSIG]),
+                    CScript([OP_1, OP_CHECKSIGVERIFY, pub3.get_bytes(0), OP_CHECKSIG]),
+                ]
+                info = taproot_construct(pub1, scripts)
+                # nni: non-noinput; ni: noinput; v0d: v0 internal key; ran: test rannisawni
+                make_spender(spenders, info, p2sh, "dualsig/pk", sign=[{'key':sec1,'ht':rand_nonnoinput()}], annex=annex, standard=standard)
+                make_spender(spenders, info, p2sh, "dualsig/v2nniv2nni", script=scripts[0], sign=[{'key':sec3,'ht':rand_nonnoinput()}, {'key':sec2,'ht':rand_nonnoinput()}], annex=annex, standard=standard)
+                make_spender(spenders, info, p2sh, "dualsig/v0nniv2nni", script=scripts[1], sign=[{'key':sec3,'ht':rand_nonnoinput()}, {'key':sec2,'ht':rand_nonnoinput(),'ver':0}], annex=annex, standard=standard)
+                make_spender(spenders, info, p2sh, "dualsig/v0niv2nni", script=scripts[1], sign=[{'key':sec3,'ht':rand_nonnoinput()}, {'key':sec2,'ht':rand_noinput(),'ver':0}], annex=annex, standard=standard)
+                make_spender(spenders, info, p2sh, "dualsig/v0niv2nniran", script=scripts[1], sign=[{'key':sec3,'ht':rand_nonnoinput(),'dht':rand_noinput()}, {'key':sec2,'ht':rand_noinput(),'ver':0}], annex=annex, standard=standard)
+                make_spender(spenders, info, p2sh, "dualsig/v0dnniv2nni", script=scripts[2], sign=[{'key':sec3,'ht':rand_nonnoinput()}, {'key':sec1,'ht':rand_nonnoinput(),'ver':0}], annex=annex, standard=standard)
+                make_spender(spenders, info, p2sh, "dualsig/v0dniv2nni", script=scripts[2], sign=[{'key':sec3,'ht':rand_nonnoinput()}, {'key':sec1,'ht':rand_noinput(),'ver':0}], annex=annex, standard=standard)
+                make_spender(spenders, info, p2sh, "dualsig/v0dniv2nniran", script=scripts[2], sign=[{'key':sec3,'ht':rand_nonnoinput(),'dht':rand_noinput()}, {'key':sec1,'ht':rand_noinput(),'ver':0}], annex=annex, standard=standard)
+                make_spender(spenders, info, p2sh, "dualsig/v0dnniv0nni", script=scripts[3], sign=[{'key':sec3,'ht':rand_nonnoinput(),'ver':0}, {'key':sec1,'ht':rand_nonnoinput(),'ver':0}], annex=annex, standard=standard)
+                make_spender(spenders, info, p2sh, "dualsig/v0dnniv0ni", script=scripts[3], sign=[{'key':sec3,'ht':rand_nonnoinput(),'ver':0}, {'key':sec1,'ht':rand_noinput(),'ver':0}], annex=annex, standard=standard)
+                make_spender(spenders, info, p2sh, "dualsig/v0dniv0nni", script=scripts[3], sign=[{'key':sec3,'ht':rand_noinput(),'ver':0}, {'key':sec1,'ht':rand_nonnoinput(),'ver':0}], annex=annex, standard=standard)
+                make_spender(spenders, info, p2sh, "dualsig/v0dniv0nniran", script=scripts[3], sign=[{'key':sec3,'ht':rand_nonnoinput(),'dht':rand_noinput(),'ver':0}, {'key':sec1,'ht':rand_noinput(),'ver':0}], annex=annex, standard=standard)
+                make_spender(spenders, info, p2sh, "dualsig/v0dnniv0niran", script=scripts[3], sign=[{'key':sec3,'ht':rand_noinput(),'ver':0}, {'key':sec1,'ht':rand_nonnoinput(),'dht':rand_noinput(),'ver':0}], annex=annex, standard=standard)
 
         # Run all tests once with individual inputs, once with groups of inputs
         self.test_spenders(spenders, input_counts=[1])
