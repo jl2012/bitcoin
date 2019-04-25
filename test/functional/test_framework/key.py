@@ -258,14 +258,18 @@ class ECPubKey():
     def is_valid(self):
         return self.valid
 
-    def get_bytes(self):
+    def get_bytes(self, ver=None):
         assert(self.valid)
         p = SECP256K1.affine(self.p)
         if p is None:
             return None
         if self.compressed:
-            return bytes([0x02 + (p[1] & 1)]) + p[0].to_bytes(32, 'big')
+            if (ver == None):
+                ver = 2
+            assert(ver >= 0 and ver <= 0xfe and not (ver % 2))
+            return bytes([ver + (p[1] & 1)]) + p[0].to_bytes(32, 'big')
         else:
+            assert(ver is None)
             return bytes([0x04]) + p[0].to_bytes(32, 'big') + p[1].to_bytes(32, 'big')
 
     def verify_ecdsa(self, sig, msg, low_s=True):

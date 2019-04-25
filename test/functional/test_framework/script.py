@@ -590,8 +590,10 @@ SIGHASH_NONE = 2
 SIGHASH_SINGLE = 3
 SIGHASH_ANYONECANPAY = 0x80
 SIGHASH_TAPDEFAULT = 0
-SIGHASH_TAPINPUTMASK = 0x80
+SIGHASH_TAPINPUTMASK = 0xc0
 SIGHASH_TAPOUTPUTMASK = 3
+SIGHASH_NOINPUT = 0x40
+SIGHASH_NOINPUT_NOSCRIPT = 0xc0
 
 def FindAndDelete(script, sig):
     """Consensus critical, see FindAndDelete() in Satoshi codebase"""
@@ -720,9 +722,9 @@ def SegwitVersion1SignatureHash(script, txTo, inIdx, hashtype, amount):
 
     return hash256(ss)
 
-def TaprootSignatureHash(txTo, spent_utxos, hash_type, input_index = 0, scriptpath = False, tapscript = CScript(), codeseparator_pos = 0xffff, annex = None, tapscript_ver = DEFAULT_TAPSCRIPT_VER):
+def TaprootSignatureHash(txTo, spent_utxos, hash_type, input_index = 0, scriptpath = False, tapscript = CScript(), codeseparator_pos = 0xffff, annex = None, tapscript_ver = DEFAULT_TAPSCRIPT_VER, key_ver = 2):
     assert (len(txTo.vin) == len(spent_utxos))
-    assert((hash_type >= 0 and hash_type <= 3) or (hash_type >= 0x81 and hash_type <= 0x83))
+    assert((hash_type >= 0 and hash_type <= 3) or (hash_type >= 0x41 and hash_type <= 0x43) or (hash_type >= 0x81 and hash_type <= 0x83) or (hash_type >= 0xc1 and hash_type <= 0xc3))
     assert (input_index < len(txTo.vin))
     spk = spent_utxos[input_index].scriptPubKey
     ss = bytes([0, hash_type]) # epoch, hash_type
@@ -730,6 +732,7 @@ def TaprootSignatureHash(txTo, spent_utxos, hash_type, input_index = 0, scriptpa
     ss += struct.pack("<I", txTo.nLockTime)
     input_type = hash_type & SIGHASH_TAPINPUTMASK
     output_type = hash_type & SIGHASH_TAPOUTPUTMASK
+    sign_script = (input_type == SIGHASH_TAPDEFAULT or input_type == SIGHASH_ANYONECANPAY or input_type == SIGHASH_NOINPUT)
     if input_type == SIGHASH_TAPDEFAULT:
         ss += sha256(b"".join(i.prevout.serialize() for i in txTo.vin))
         ss += sha256(b"".join(struct.pack("<q", u.nValue) for u in spent_utxos))
@@ -749,9 +752,11 @@ def TaprootSignatureHash(txTo, spent_utxos, hash_type, input_index = 0, scriptpa
         assert (codeseparator_pos >= 0 and codeseparator_pos <= 0xffff)
         spend_type |= 4
     ss += bytes([spend_type])
-    ss += ser_string(spk)
+    if sign_script:
+        ss += ser_string(spk)
     if (input_type == SIGHASH_ANYONECANPAY):
         ss += txTo.vin[input_index].prevout.serialize()
+    if (input_type == SIGHASH_ANYONECANPAY or input_type == SIGHASH_NOINPUT or input_type == SIGHASH_NOINPUT_NOSCRIPT):
         ss += struct.pack("<q", spent_utxos[input_index].nValue)
         ss += struct.pack("<I", txTo.vin[input_index].nSequence)
     if (input_type == SIGHASH_TAPDEFAULT):
@@ -762,9 +767,15 @@ def TaprootSignatureHash(txTo, spent_utxos, hash_type, input_index = 0, scriptpa
         assert (input_index < len(txTo.vout))
         ss += sha256(txTo.vout[input_index].serialize())
     if (scriptpath):
-        ss += TaggedHash("TapLeaf", bytes([tapscript_ver]) + ser_string(tapscript))
+        if sign_script:
+            ss += TaggedHash("TapLeaf", bytes([tapscript_ver]) + ser_string(tapscript))
+        ss += bytes([key_ver])
         ss += struct.pack("<H", codeseparator_pos)
-    assert (len(ss) == 177 - (input_type == SIGHASH_ANYONECANPAY) * 50 - (output_type == SIGHASH_NONE) * 32 - (IsPayToScriptHash(spk)) * 12 + (annex is not None) * 32 + scriptpath * 34)
+
+    if (input_type == SIGHASH_NOINPUT_NOSCRIPT):
+        assert (len(ss) == 58 - (output_type == SIGHASH_NONE) * 32 + (annex is not None) * 32)
+    else:
+        assert (len(ss) == 177 - (input_type == SIGHASH_ANYONECANPAY) * 50 - (input_type == SIGHASH_NOINPUT) * 86 - (output_type == SIGHASH_NONE) * 32 - (IsPayToScriptHash(spk)) * 12 + (annex is not None) * 32 + scriptpath * 35)
     return TaggedHash("TapSighash", ss)
 
 def GetVersionTaggedPubKey(pubkey, version):
