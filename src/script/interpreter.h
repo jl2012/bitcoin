@@ -29,7 +29,15 @@ enum
 
     SIGHASH_TAPDEFAULT = 0,
     SIGHASH_TAPOUTPUTMASK = 3,
-    SIGHASH_TAPINPUTMASK = 0x80,
+    SIGHASH_TAPINPUTMASK = 0xc0,
+    SIGHASH_NOINPUT = 0x40,
+    SIGHASH_NOINPUT_NOSCRIPT = 0xc0,
+};
+
+enum
+{
+    TAPSCRIPTKEY_LEGACY = 2,
+    TAPSCRIPTKEY_NOINPUTABLE = 0,
 };
 
 /** Script verification flags.
@@ -136,6 +144,9 @@ enum
 
     // Making unknown public key versions in tapscript non-standard
     SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE = (1U << 21),
+
+    // NOINPUT validation
+    SCRIPT_VERIFY_NOINPUT = (1U << 22),
 };
 
 bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);
@@ -166,6 +177,7 @@ enum class SigVersion
     WITNESS_V0 = 1,
     TAPROOT = 2,
     TAPSCRIPT = 3,
+    NOINPUT = 4,
 };
 
 struct ScriptExecutionData
@@ -182,6 +194,9 @@ struct ScriptExecutionData
 
     bool m_witness_weight_init = false;
     size_t m_witness_weight;
+
+    bool m_internal_key_init = false;
+    std::vector<unsigned char> m_internal_key;
 };
 
 /** Signature hash sizes */
