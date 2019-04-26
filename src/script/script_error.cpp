@@ -39,6 +39,8 @@ const char* ScriptErrorString(const ScriptError serror)
             return "Opcode missing or not understood";
         case SCRIPT_ERR_DISABLED_OPCODE:
             return "Attempted to use a disabled opcode";
+        case SCRIPT_ERR_LEGACY_CHECKSIG:
+            return "Legacy CHECKSIG operations not allowed in big transaction";
         case SCRIPT_ERR_INVALID_STACK_OPERATION:
             return "Operation not valid with the current stack size";
         case SCRIPT_ERR_INVALID_ALTSTACK_OPERATION:

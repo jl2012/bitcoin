@@ -2001,9 +2001,18 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
         txdata.emplace_back(tx);
         if (!tx.IsCoinBase())
         {
+            auto flags_copy = flags;
+            // if softfork activated {
+            flags_copy |= SCRIPT_VERIFY_SIGPUSHONLY;
+            size_t tx_bare_size = ::GetSerializeSize(tx, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS);
+            if (tx_bare_size > 300000 || (tx_bare_size > 100000 && i != 1)) flags_copy |= SCRIPT_VERIFY_LEGACY_NO_CHECKSIG;
+            if (tx_bare_size > 100000 || (tx_bare_size > 10000 && i != 1)) flags_copy |= SCRIPT_VERIFY_LEGACY_NULLFAIL;
+            if (i != 1) flags_copy |= SCRIPT_VERIFY_LEGACY_SCRIPT_SIZE;
+            // } end if softfork activated
+
             std::vector<CScriptCheck> vChecks;
             bool fCacheResults = fJustCheck; /* Don't cache results if we're actually connecting blocks (still consult the cache, though) */
-            if (!CheckInputs(tx, state, view, fScriptChecks, flags, fCacheResults, fCacheResults, txdata[i], nScriptCheckThreads ? &vChecks : nullptr))
+            if (!CheckInputs(tx, state, view, fScriptChecks, flags_copy, fCacheResults, fCacheResults, txdata[i], nScriptCheckThreads ? &vChecks : nullptr))
                 return error("ConnectBlock(): CheckInputs on %s failed with %s",
                     tx.GetHash().ToString(), FormatStateMessage(state));
             control.Add(vChecks);

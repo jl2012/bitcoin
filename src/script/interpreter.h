@@ -115,6 +115,10 @@ enum
     // Making OP_CODESEPARATOR and FindAndDelete fail any non-segwit scripts
     //
     SCRIPT_VERIFY_CONST_SCRIPTCODE = (1U << 16),
+
+    SCRIPT_VERIFY_LEGACY_SCRIPT_SIZE = (1U << 29),
+    SCRIPT_VERIFY_LEGACY_NO_CHECKSIG = (1U << 30),
+    SCRIPT_VERIFY_LEGACY_NULLFAIL = (1U << 31),
 };
 
 bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);

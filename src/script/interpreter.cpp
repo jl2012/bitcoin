@@ -300,6 +300,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
         return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
     int nOpCount = 0;
     bool fRequireMinimal = (flags & SCRIPT_VERIFY_MINIMALDATA) != 0;
+    bool nullfail = ((flags & SCRIPT_VERIFY_NULLFAIL) != 0 || ((flags & SCRIPT_VERIFY_LEGACY_NULLFAIL) != 0 && sigversion == SigVersion::BASE));
 
     try
     {
@@ -914,6 +915,10 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 case OP_CHECKSIG:
                 case OP_CHECKSIGVERIFY:
                 {
+                    if (sigversion == SigVersion::BASE && ((flags & SCRIPT_VERIFY_LEGACY_NO_CHECKSIG) != 0)) {
+                        return set_error(serror, SCRIPT_ERR_LEGACY_CHECKSIG);
+                    }
+
                     // (sig pubkey -- bool)
                     if (stack.size() < 2)
                         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
@@ -937,7 +942,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     }
                     bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
 
-                    if (!fSuccess && (flags & SCRIPT_VERIFY_NULLFAIL) && vchSig.size())
+                    if (!fSuccess && nullfail && vchSig.size())
                         return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
 
                     popstack(stack);
@@ -956,6 +961,10 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 case OP_CHECKMULTISIG:
                 case OP_CHECKMULTISIGVERIFY:
                 {
+                    if (sigversion == SigVersion::BASE && ((flags & SCRIPT_VERIFY_LEGACY_NO_CHECKSIG) != 0)) {
+                        return set_error(serror, SCRIPT_ERR_LEGACY_CHECKSIG);
+                    }
+
                     // ([sig ...] num_of_signatures [pubkey ...] num_of_pubkeys -- bool)
 
                     int i = 1;
@@ -970,7 +979,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         return set_error(serror, SCRIPT_ERR_OP_COUNT);
                     int ikey = ++i;
                     // ikey2 is the position of last non-signature item in the stack. Top stack item = 1.
-                    // With SCRIPT_VERIFY_NULLFAIL, this is used for cleanup if operation fails.
+                    // With NULLFAIL requirement, this is used for cleanup if operation fails.
                     int ikey2 = nKeysCount + 2;
                     i += nKeysCount;
                     if ((int)stack.size() < i)
@@ -1032,7 +1041,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     // Clean up stack of actual arguments
                     while (i-- > 1) {
                         // If the operation failed, we require that all signatures must be empty vector
-                        if (!fSuccess && (flags & SCRIPT_VERIFY_NULLFAIL) && !ikey2 && stacktop(-1).size())
+                        if (!fSuccess && nullfail && !ikey2 && stacktop(-1).size())
                             return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
                         if (ikey2 > 0)
                             ikey2--;
@@ -1489,7 +1498,12 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         return false;
     if (flags & SCRIPT_VERIFY_P2SH)
         stackCopy = stack;
-    if (!EvalScript(stack, scriptPubKey, flags, checker, SigVersion::BASE, serror))
+
+    auto flags_copy = flags;
+    if ((flags & SCRIPT_VERIFY_LEGACY_SCRIPT_SIZE) != 0 && scriptPubKey.size() > 1500) {
+        flags_copy |= SCRIPT_VERIFY_LEGACY_NO_CHECKSIG;
+    }
+    if (!EvalScript(stack, scriptPubKey, flags_copy, checker, SigVersion::BASE, serror))
         // serror is set
         return false;
     if (stack.empty())
